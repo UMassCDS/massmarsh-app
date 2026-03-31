@@ -5,6 +5,7 @@ import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/form_screen.dart';
 import 'screens/outings_screen.dart';
+import 'screens/drafts_screen.dart';
 
 /// Main app widget
 class MassMarshApp extends ConsumerWidget {
@@ -40,9 +41,14 @@ class MassMarshApp extends ConsumerWidget {
             builder: (context) => FormScreen(monitoringType: monitoringType),
           );
         }
-        if (settings.name == '/outings') {
+        if (settings.name == '/sessions') {
           return MaterialPageRoute(
             builder: (context) => const OutingsScreen(),
+          );
+        }
+        if (settings.name == '/drafts') {
+          return MaterialPageRoute(
+            builder: (context) => const DraftsScreen(),
           );
         }
         // Add more routes as needed

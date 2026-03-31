@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
@@ -52,29 +53,29 @@ class _OutingDetailsScreenState extends State<OutingDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final outing = widget.outing;
+    final session = widget.outing;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(outing.siteName),
+        title: Text(session.siteName),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionHeader('Outing Info'),
-            _infoRow('Crew Leader', outing.crewLeader),
-            if (outing.otherMembers != null && outing.otherMembers!.isNotEmpty)
-              _infoRow('Other Members', outing.otherMembers!),
-            _infoRow('Monitoring Type', outing.monitoringType),
-            _infoRow('Status', outing.isDraft ? 'Draft' : 'Submitted'),
-            if (outing.startTime != null)
-              _infoRow('Start', outing.startTime!.toString().split('.')[0]),
-            if (outing.endTime != null)
-              _infoRow('End', outing.endTime!.toString().split('.')[0]),
-            if (outing.createdAt != null)
-              _infoRow('Created', outing.createdAt!.toString().split('.')[0]),
+            _sectionHeader('Session Info'),
+            _infoRow('Crew Leader', session.crewLeader),
+            if (session.otherMembers != null && session.otherMembers!.isNotEmpty)
+              _infoRow('Other Members', session.otherMembers!),
+            _infoRow('Monitoring Type', session.monitoringType),
+            _infoRow('Status', session.isDraft ? 'Draft' : 'Submitted'),
+            if (session.startTime != null)
+              _infoRow('Start', session.startTime!.toString().split('.')[0]),
+            if (session.endTime != null)
+              _infoRow('End', session.endTime!.toString().split('.')[0]),
+            if (session.createdAt != null)
+              _infoRow('Created', session.createdAt!.toString().split('.')[0]),
             const SizedBox(height: 24),
             _sectionHeader('Records (${_childRecords.length})'),
             if (_loading)
@@ -134,8 +135,51 @@ class _OutingDetailsScreenState extends State<OutingDetailsScreen> {
     final skip = {'id', 'local_id', 'server_id', 'outing_id', 'sync_status', 'created_at', 'updated_at'};
     final rows = <Widget>[];
 
+    // Show photo first if available
+    final photoUrl = record['photo_filename'] as String?;
+    print('DEBUG photo_filename: $photoUrl');
+
+    final photoLocalPath = record['photo_local_path'] as String?;
+
+    if (photoUrl != null && photoUrl.startsWith('http')) {
+      rows.add(const Padding(
+        padding: EdgeInsets.only(bottom: 4),
+        child: Text('Photo:', style: TextStyle(color: Colors.grey)),
+      ));
+      rows.add(Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.network(
+            photoUrl,
+            fit: BoxFit.cover,
+            loadingBuilder: (_, child, progress) =>
+              progress == null ? child : const Center(child: CircularProgressIndicator()),
+            errorBuilder: (_, __, _) =>
+              const Text('Failed to load photo', style: TextStyle(color: Colors.red)),
+          ),
+        ),
+      ));
+    } else if (photoLocalPath != null && photoLocalPath.isNotEmpty) {
+      final file = File(photoLocalPath);
+      if (file.existsSync()) {
+        rows.add(const Padding(
+          padding: EdgeInsets.only(bottom: 4),
+          child: Text('Photo (local):', style: TextStyle(color: Colors.grey)),
+        ));
+        rows.add(Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(file, fit: BoxFit.cover),
+          ),
+        ));
+      }
+    }
+
     for (final entry in record.entries) {
       if (skip.contains(entry.key) || entry.value == null) continue;
+      if (entry.key == 'photo_filename' || entry.key == 'photo_local_path') continue;
 
       String displayValue;
       if (entry.key == 'species_observations') {

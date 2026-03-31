@@ -91,7 +91,7 @@ class HomeScreen extends ConsumerWidget {
 
             // Main Actions
             Text(
-              'Start a Field Outing',
+              'Start a Field Session',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
@@ -142,10 +142,18 @@ class HomeScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             ListTile(
-              leading: const Icon(Icons.history),
-              title: const Text('Previous Outings'),
+              leading: const Icon(Icons.drafts, color: Colors.orange),
+              title: const Text('View Drafts'),
+              subtitle: const Text('Continue saved drafts'),
               onTap: () {
-                Navigator.of(context).pushNamed('/outings');
+                Navigator.of(context).pushNamed('/drafts');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.history),
+              title: const Text('Previous Sessions'),
+              onTap: () {
+                Navigator.of(context).pushNamed('/sessions');
               },
             ),
             ListTile(

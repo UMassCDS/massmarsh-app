@@ -229,7 +229,7 @@ class SyncService {
 
       _logger.d('Response status: ${response.statusCode}');
 
-      if (response.statusCode == 201 && response.data['success'] == true) {
+      if (response.statusCode == 200 && response.data['success'] == true) {
         final serverId = response.data['server_id'] as int;
         final childRecordIds = response.data['child_records'] as Map<String, dynamic>;
 
@@ -253,6 +253,8 @@ class SyncService {
               {
                 'sync_status': 'synced',
                 'server_id': entry.value,
+                if (photoUrls.containsKey(entry.key))
+                  'photo_filename': photoUrls[entry.key],
               },
               where: 'local_id = ?',
               whereArgs: [entry.key],

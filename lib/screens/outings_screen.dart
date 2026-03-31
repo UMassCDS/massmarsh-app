@@ -15,11 +15,11 @@ class OutingsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Previous Outings'),
+        title: const Text('Previous Sessions'),
       ),
       body: outingsAsync.when(
-        data: (outings) {
-          if (outings.isEmpty) {
+        data: (sessions) {
+          if (sessions.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -31,12 +31,12 @@ class OutingsScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'No outings yet',
+                    'No sessions yet',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Create a new field outing to get started',
+                    'Create a new field session to get started',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
@@ -45,35 +45,35 @@ class OutingsScreen extends ConsumerWidget {
           }
 
           return ListView.builder(
-            itemCount: outings.length,
+            itemCount: sessions.length,
             itemBuilder: (context, index) {
-              final outing = outings[index];
+              final session = sessions[index];
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: ListTile(
-                  title: Text(outing.siteName),
+                  title: Text(session.siteName),
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 4),
                       Text(
-                        'Crew: ${outing.crewLeader}',
+                        'Crew: ${session.crewLeader}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Type: ${outing.monitoringType}',
+                        'Type: ${session.monitoringType}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Status: ${outing.isDraft ? "Draft" : "Submitted"}',
+                        'Status: ${session.isDraft ? "Draft" : "Submitted"}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: outing.isDraft ? Colors.orange : Colors.green,
+                          color: session.isDraft ? Colors.orange : Colors.green,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (outing.createdAt != null)
+                      if (session.createdAt != null)
                         Text(
-                          'Created: ${outing.createdAt!.toString().split('.')[0]}',
+                          'Created: ${session.createdAt!.toString().split('.')[0]}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                     ],
@@ -85,7 +85,7 @@ class OutingsScreen extends ConsumerWidget {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => OutingDetailsScreen(outing: outing),
+                            builder: (_) => OutingDetailsScreen(outing: session),
                           ),
                         );
                       }
@@ -119,7 +119,7 @@ class OutingsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Error loading outings',
+                  'Error loading sessions',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 8),

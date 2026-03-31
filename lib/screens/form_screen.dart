@@ -4,14 +4,18 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 import '../models/field_outing/field_outing.dart';
 import '../providers/field_outing_provider.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
+  final int? draftId;
 
   const FormScreen({
     required this.monitoringType,
+    this.draftId,
     super.key,
   });
 
@@ -89,7 +93,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // For vegetation monitoring - store multiple plots
   late List<PlotData> _plots;
   int _nextPlotNumber = 1;
-  late final _siteAbbrController = TextEditingController();
 
   // Image picker
   final ImagePicker _imagePicker = ImagePicker();
@@ -121,51 +124,69 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     'Transition'
   ];
 
-  // Common species for quick selection
-  static const List<String> _commonSpecies = [
-    'BARE',
-    'TRMAR',
-    'TECAN',
-    'JUBAL',
-    'JUGER',
-    'TYLAT',
-    'PORUM',
-    'SCAME',
-    'SADEP',
-    'PHAUS',
-    'AGSTO',
-    'BAHAL',
-    'CASEP',
-    'IMCAP',
-    'IVFRU',
+  // All species with display labels (code - common name)
+  static const List<Map<String, String>> _allSpecies = [
+    {'code': 'AGMAR', 'label': 'AGMAR - Goat Rue'},
+    {'code': 'AGSTO', 'label': 'AGSTO - Creeping Bent'},
+    {'code': 'ARANS', 'label': 'ARANS - Silverweed'},
+    {'code': 'ATPAT', 'label': 'ATPAT - Spearscale'},
+    {'code': 'BAHAL', 'label': 'BAHAL - Groundsel Bush'},
+    {'code': 'BARE', 'label': 'BARE - Bare Ground'},
+    {'code': 'BOMAR', 'label': 'BOMAR - Sea Bulrush'},
+    {'code': 'BOROB', 'label': 'BOROB - Sturdy Bulrush'},
+    {'code': 'CASEP', 'label': 'CASEP - Bindweed'},
+    {'code': 'DEAD', 'label': 'DEAD - Dead Vegetation'},
+    {'code': 'DISPI', 'label': 'DISPI - Desert Saltgrass'},
+    {'code': 'FERUB', 'label': 'FERUB - Red Fescue'},
+    {'code': 'GLMAR', 'label': 'GLMAR - Sea Milkwort'},
+    {'code': 'IMCAP', 'label': 'IMCAP - Orange Balsam'},
+    {'code': 'IVFRU', 'label': 'IVFRU - Marsh Elder'},
+    {'code': 'JUBAL', 'label': 'JUBAL - Baltic Rush'},
+    {'code': 'JUEFF', 'label': 'JUEFF - Soft Rush'},
+    {'code': 'JUGER', 'label': 'JUGER - Black Grass'},
+    {'code': 'LICAR', 'label': 'LICAR - Sea Lavender'},
+    {'code': 'LYSAL', 'label': 'LYSAL - Purple Loosestrife'},
+    {'code': 'MYGAL', 'label': 'MYGAL - Sweet Gale'},
+    {'code': 'MYPEN', 'label': 'MYPEN - Northern Bayberry'},
+    {'code': 'PAVIR', 'label': 'PAVIR - Switchgrass'},
+    {'code': 'PHARU', 'label': 'PHARU - Reed Canary Grass'},
+    {'code': 'PHAUS', 'label': 'PHAUS - Common Reed'},
+    {'code': 'PLMAR', 'label': 'PLMAR - Goose-tongue'},
+    {'code': 'PORUM', 'label': 'PORUM - Bushy Knotweed'},
+    {'code': 'PUMAR', 'label': 'PUMAR - Alkali Grass'},
+    {'code': 'RORAG', 'label': 'RORAG - Rugosa Rose'},
+    {'code': 'RUMAR', 'label': 'RUMAR - Widgeon Grass'},
+    {'code': 'SADEP', 'label': 'SADEP - Glasswort'},
+    {'code': 'SCAME', 'label': 'SCAME - Chairmaker Bulrush'},
+    {'code': 'SOSEM', 'label': 'SOSEM - Seaside Goldenrod'},
+    {'code': 'SPALT', 'label': 'SPALT - Smooth Cordgrass'},
+    {'code': 'SPLAT', 'label': 'SPLAT - Meadowsweet'},
+    {'code': 'SPPAT', 'label': 'SPPAT - Salt Meadow Cordgrass'},
+    {'code': 'SPPEC', 'label': 'SPPEC - Prairie Cordgrass'},
+    {'code': 'SULIN', 'label': 'SULIN - Alkali Seepweed'},
+    {'code': 'SYTEN', 'label': 'SYTEN - Alkali Marsh Aster'},
+    {'code': 'TECAN', 'label': 'TECAN - Canada Germander'},
+    {'code': 'TORAD', 'label': 'TORAD - Poison Ivy'},
+    {'code': 'TRMAR', 'label': 'TRMAR - Seaside Arrowgrass'},
+    {'code': 'TYANG', 'label': 'TYANG - Narrow-leaved Cattail'},
+    {'code': 'TYLAT', 'label': 'TYLAT - Cattail'},
+    {'code': 'UNK', 'label': 'UNK - Unknown Species'},
+    {'code': 'WRACK', 'label': 'WRACK - Wrack'},
   ];
 
-  String _generatePlotId(String siteAbbr, String transectId, int plotNumber) {
-    final parts = [siteAbbr, transectId, 'P$plotNumber']
+  String _generatePlotId(String transectId, int plotNumber) {
+    final parts = [transectId, plotNumber.toString()]
         .where((p) => p.isNotEmpty)
         .join('_');
     return parts;
   }
 
-  void _refreshAutoPlotIds() {
-    for (final plot in _plots) {
-      if (!plot.plotIdManuallySet) {
-        final id = _generatePlotId(
-          _siteAbbrController.text.trim(),
-          plot.transectId,
-          plot.plotNumber,
-        );
-        plot.plotId = id;
-        plot.plotIdController.text = id;
-      }
-    }
-  }
 
   @override
   void initState() {
     super.initState();
     _plots = [];
-    if (widget.monitoringType == 'vegetation') {
+    if (widget.monitoringType == 'vegetation' && widget.draftId == null) {
       _plots.add(PlotData(
         transectId: '',
         plotNumber: 1,
@@ -178,7 +199,161 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         species: [],
       ));
       _nextPlotNumber = 2;
-      _siteAbbrController.addListener(_refreshAutoPlotIds);
+    }
+    
+    // Load draft data if draftId is provided
+    if (widget.draftId != null) {
+      _loadDraftData();
+    }
+  }
+
+  Future<void> _loadDraftData() async {
+    try {
+      final service = ref.read(fieldOutingServiceProvider);
+      final draft = await service.getDraftById(widget.draftId!);
+      
+      if (draft == null) return;
+      
+      // Load basic fields
+      _crewLeaderController.text = draft.crewLeader;
+      _siteNameController.text = draft.siteName;
+      if (draft.otherMembers != null) {
+        _otherMembersController.text = draft.otherMembers!;
+      }
+      
+      // Load times if available
+      if (draft.startTime != null) {
+        final start = draft.startTime!;
+        _startTimeController.text = '${start.hour > 12 ? start.hour - 12 : start.hour == 0 ? 12 : start.hour}:${start.minute.toString().padLeft(2, '0')} ${start.hour >= 12 ? 'PM' : 'AM'}';
+      }
+      if (draft.endTime != null) {
+        final end = draft.endTime!;
+        _endTimeController.text = '${end.hour > 12 ? end.hour - 12 : end.hour == 0 ? 12 : end.hour}:${end.minute.toString().padLeft(2, '0')} ${end.hour >= 12 ? 'PM' : 'AM'}';
+      }
+      
+      // Load child records based on monitoring type
+      final db = await ref.read(appDatabaseProvider.future);
+      final database = await db.database;
+      
+      if (widget.monitoringType == 'vegetation') {
+        final vegRecords = await database.query(
+          'vegetation_records',
+          where: 'outing_id = ?',
+          whereArgs: [widget.draftId],
+          orderBy: 'plot_number',
+        );
+        
+        setState(() {
+          _plots = vegRecords.map((record) {
+            List<SpeciesObservation> species = [];
+            if (record['species_observations'] != null) {
+              final speciesJson = jsonDecode(record['species_observations'] as String) as List;
+              species = speciesJson.map((s) => SpeciesObservation(
+                speciesCode: s['species_code'] as String,
+                percentageCover: s['percentage_cover'] as int,
+              )).toList();
+            }
+            
+            return PlotData(
+              transectId: record['transect_id'] as String? ?? '',
+              plotNumber: record['plot_number'] as int? ?? 1,
+              plotId: record['plot_id'] as String? ?? '',
+              plotIdManuallySet: (record['plot_id'] as String?)?.isNotEmpty ?? false,
+              habitatType: record['habitat_type'] as String? ?? '',
+              distanceAlongTransect: (record['distance_along_transect_m'] as num?)?.toDouble() ?? 0.0,
+              latitude: (record['latitude'] as num?)?.toDouble() ?? 0.0,
+              longitude: (record['longitude'] as num?)?.toDouble() ?? 0.0,
+              canopyHeight: (record['canopy_height_m'] as num?)?.toDouble() ?? 0.0,
+              thatchHeight: (record['thatch_height_m'] as num?)?.toDouble() ?? 0.0,
+              elevation: (record['elevation_m'] as num?)?.toDouble(),
+              notes: record['notes'] as String?,
+              photoPath: record['photo_local_path'] as String?,
+              species: species,
+            );
+          }).toList();
+          
+          if (_plots.isNotEmpty) {
+            _nextPlotNumber = _plots.map((p) => p.plotNumber).reduce((a, b) => a > b ? a : b) + 1;
+          }
+        });
+      } else if (widget.monitoringType == 'hydrology') {
+        final hydroRecords = await database.query(
+          'hydrology_records',
+          where: 'outing_id = ?',
+          whereArgs: [widget.draftId],
+          limit: 1,
+        );
+        
+        if (hydroRecords.isNotEmpty) {
+          final record = hydroRecords.first;
+          setState(() {
+            if (record['area_treatment'] != null) {
+              _areaTreatmentController.text = record['area_treatment'] as String;
+            }
+            if (record['wlr_type'] != null) {
+              _wlrTypeController.text = record['wlr_type'] as String;
+            }
+            if (record['serial_number'] != null) {
+              _serialNumberController.text = record['serial_number'] as String;
+            }
+            if (record['waypoint_number'] != null) {
+              _waypointNumberController.text = record['waypoint_number'] as String;
+            }
+            if (record['rtk_elevation_navd88_m'] != null) {
+              _rtkElevationController.text = record['rtk_elevation_navd88_m'].toString();
+            }
+            if (record['water_above_below_nut_m'] != null) {
+              _waterAboveBelowController.text = record['water_above_below_nut_m'].toString();
+            }
+            if (record['well_rim_to_water_m'] != null) {
+              _wellRimToWaterController.text = record['well_rim_to_water_m'].toString();
+            }
+            if (record['well_rim_to_marsh_m'] != null) {
+              _wellRimToMarshController.text = record['well_rim_to_marsh_m'].toString();
+            }
+          });
+        }
+      } else if (widget.monitoringType == 'elevation') {
+        final elevRecords = await database.query(
+          'elevation_records',
+          where: 'outing_id = ?',
+          whereArgs: [widget.draftId],
+          limit: 1,
+        );
+        
+        if (elevRecords.isNotEmpty) {
+          final record = elevRecords.first;
+          setState(() {
+            if (record['transect_id'] != null) {
+              _transectIdController.text = record['transect_id'] as String;
+            }
+            if (record['point_number'] != null) {
+              _pointNumberController.text = record['point_number'].toString();
+            }
+            if (record['latitude'] != null) {
+              _latitudeController.text = record['latitude'].toString();
+            }
+            if (record['longitude'] != null) {
+              _longitudeController.text = record['longitude'].toString();
+            }
+            if (record['elevation_navd88_m'] != null) {
+              _elevationNavd88Controller.text = record['elevation_navd88_m'].toString();
+            }
+            if (record['feature_type'] != null) {
+              _featureTypeController.text = record['feature_type'] as String;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading draft: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -187,7 +362,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     for (final plot in _plots) {
       plot.dispose();
     }
-    _siteAbbrController.dispose();
     _crewLeaderController.dispose();
     _siteNameController.dispose();
     _otherMembersController.dispose();
@@ -281,7 +455,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       'elevation': 'Elevation Monitoring Form',
     };
 
-    final title = titleMap[widget.monitoringType] ?? 'Field Outing Form';
+    final title = titleMap[widget.monitoringType] ?? 'Field Session Form';
 
     return Scaffold(
       appBar: AppBar(
@@ -295,7 +469,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // COMMON FIELDS FOR ALL FORMS
-              _buildSectionHeader('Field Outing Information'),
+              _buildSectionHeader('Field Session Information'),
               _buildTextField(_crewLeaderController, 'Crew Leader Name', Icons.person),
               _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
               _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
@@ -318,7 +492,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               ElevatedButton.icon(
                 onPressed: () => _saveFieldOuting(context, ref),
                 icon: const Icon(Icons.save),
-                label: const Text('Save Field Outing'),
+                label: const Text('Save Field Session'),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
@@ -327,11 +501,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
               // Save as Draft Button
               OutlinedButton.icon(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Saved as draft')),
-                  );
-                },
+                onPressed: () => _saveDraft(context, ref),
                 icon: const Icon(Icons.description),
                 label: const Text('Save as Draft'),
                 style: OutlinedButton.styleFrom(
@@ -350,13 +520,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildSectionHeader('Vegetation Plots'),
-        _buildTextField(
-          _siteAbbrController,
-          'Site Abbreviation (e.g. CB for Crane Beach)',
-          Icons.bookmark_outline,
-          isOptional: true,
-        ),
-        const SizedBox(height: 4),
         Text(
           '${_plots.length} plot(s) added',
           style: Theme.of(context).textTheme.bodyMedium,
@@ -663,8 +826,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   }
 
   void _showAddSpeciesDialog(int plotIndex) {
-    String selectedSpecies = _commonSpecies.first;
-    int percentageCover = 50;
+    String selectedSpecies = _allSpecies.first['code']!;
+    final coverController = TextEditingController(text: '50');
 
     showDialog(
       context: context,
@@ -677,10 +840,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               DropdownButton<String>(
                 value: selectedSpecies,
                 isExpanded: true,
-                items: _commonSpecies.map((species) {
+                items: _allSpecies.map((species) {
                   return DropdownMenuItem(
-                    value: species,
-                    child: Text(species),
+                    value: species['code']!,
+                    child: Text(species['label']!),
                   );
                 }).toList(),
                 onChanged: (value) {
@@ -692,37 +855,62 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 },
               ),
               const SizedBox(height: 16),
-              Text('Percentage Cover: $percentageCover%'),
-              Slider(
-                value: percentageCover.toDouble(),
-                min: 0,
-                max: 100,
-                divisions: 10,
-                onChanged: (value) {
-                  dialogSetState(() {
-                    percentageCover = value.toInt();
-                  });
-                },
+              TextField(
+                controller: coverController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Percentage Cover (0–100)',
+                  suffixText: '%',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ],
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
               child: const Text('Cancel'),
             ),
             ElevatedButton(
               onPressed: () {
-                // Add to main form state
-                setState(() {
-                  _plots[plotIndex].species.add(
-                    SpeciesObservation(
-                      speciesCode: selectedSpecies,
-                      percentageCover: percentageCover,
+                final cover = int.tryParse(coverController.text) ?? 0;
+                final clampedCover = cover.clamp(0, 100);
+                final speciesCode = selectedSpecies;
+                
+                // Check for duplicate species
+                final alreadyExists = _plots[plotIndex].species.any(
+                  (s) => s.speciesCode == speciesCode,
+                );
+                
+                if (alreadyExists) {
+                  // Show error and don't close dialog
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('This species is already added to Plot ${plotIndex + 1}'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 2),
                     ),
                   );
-                });
+                  return;
+                }
+                
                 Navigator.of(dialogContext).pop();
+                
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    setState(() {
+                      _plots[plotIndex].species.add(
+                        SpeciesObservation(
+                          speciesCode: speciesCode,
+                          percentageCover: clampedCover,
+                        ),
+                      );
+                    });
+                  }
+                  coverController.dispose();
+                });
               },
               child: const Text('Add'),
             ),
@@ -803,7 +991,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 _plots[plotIndex].transectId = value;
                 if (!_plots[plotIndex].plotIdManuallySet) {
                   final id = _generatePlotId(
-                    _siteAbbrController.text.trim(),
                     value,
                     _plots[plotIndex].plotNumber,
                   );
@@ -940,6 +1127,18 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     );
   }
 
+  /// Copies the picked image to the app's documents directory so the path
+  /// remains valid after iOS clears its temporary cache.
+  Future<String> _copyImageToPermanentStorage(String tempPath) async {
+    final docsDir = await getApplicationDocumentsDirectory();
+    final photosDir = Directory(p.join(docsDir.path, 'photos'));
+    if (!await photosDir.exists()) await photosDir.create(recursive: true);
+    final filename = '${DateTime.now().millisecondsSinceEpoch}${p.extension(tempPath)}';
+    final dest = p.join(photosDir.path, filename);
+    await File(tempPath).copy(dest);
+    return dest;
+  }
+
   Future<void> _pickImageFromCamera(int plotIndex) async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -949,9 +1148,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         imageQuality: 85,
       );
       if (image != null && mounted) {
+        final permanentPath = await _copyImageToPermanentStorage(image.path);
         setState(() {
-          _plots[plotIndex].photoFile = File(image.path);
-          _plots[plotIndex].photoPath = image.path;
+          _plots[plotIndex].photoFile = File(permanentPath);
+          _plots[plotIndex].photoPath = permanentPath;
         });
       }
     } catch (e) {
@@ -972,9 +1172,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         imageQuality: 85,
       );
       if (image != null && mounted) {
+        final permanentPath = await _copyImageToPermanentStorage(image.path);
         setState(() {
-          _plots[plotIndex].photoFile = File(image.path);
-          _plots[plotIndex].photoPath = image.path;
+          _plots[plotIndex].photoFile = File(permanentPath);
+          _plots[plotIndex].photoPath = permanentPath;
         });
       }
     } catch (e) {
@@ -1018,17 +1219,24 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
-  Future<void> _saveFieldOuting(BuildContext context, WidgetRef ref) async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
+  Future<void> _saveDraft(BuildContext context, WidgetRef ref) async {
+    // Don't require validation for drafts - they can be incomplete
     try {
-      // Parse start and end times
-      final startTime = _parseTimeString(_startTimeController.text);
-      final endTime = _parseTimeString(_endTimeController.text);
+      // If this was an existing draft, delete it first so we can recreate it
+      if (widget.draftId != null) {
+        final service = ref.read(fieldOutingServiceProvider);
+        await service.deleteDraft(widget.draftId!);
+      }
 
-      // Create the field outing object
+      // Parse start and end times if provided
+      final startTime = _startTimeController.text.isNotEmpty
+          ? _parseTimeString(_startTimeController.text)
+          : null;
+      final endTime = _endTimeController.text.isNotEmpty
+          ? _parseTimeString(_endTimeController.text)
+          : null;
+
+      // Create the field outing object as draft
       final outing = FieldOuting(
         orgId: 1, // Hardcoded for now, should come from auth
         crewLeader: _crewLeaderController.text,
@@ -1039,7 +1247,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         monitoringType: widget.monitoringType,
         startTime: startTime,
         endTime: endTime,
-        isDraft: false,
+        isDraft: true,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -1051,7 +1259,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         final childRecords = _plots.map((plot) {
           final effectivePlotId = plot.plotId.isNotEmpty
               ? plot.plotId
-              : _generatePlotId(_siteAbbrController.text.trim(), plot.transectId, plot.plotNumber);
+              : _generatePlotId(plot.transectId, plot.plotNumber);
           return {
           'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
           'transect_id': plot.transectId,
@@ -1117,7 +1325,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Field outing saved successfully!'),
+            content: Text('Draft saved successfully!'),
+            backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
           ),
         );
@@ -1131,7 +1340,135 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving field outing: $e')),
+          SnackBar(
+            content: Text('Error saving draft: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveFieldOuting(BuildContext context, WidgetRef ref) async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    try {
+      // If this was a draft, delete it first
+      if (widget.draftId != null) {
+        final service = ref.read(fieldOutingServiceProvider);
+        await service.deleteDraft(widget.draftId!);
+      }
+
+      // Parse start and end times
+      final startTime = _parseTimeString(_startTimeController.text);
+      final endTime = _parseTimeString(_endTimeController.text);
+
+      // Create the field outing object
+      final outing = FieldOuting(
+        orgId: 1, // Hardcoded for now, should come from auth
+        crewLeader: _crewLeaderController.text,
+        siteName: _siteNameController.text,
+        otherMembers: _otherMembersController.text.isEmpty
+            ? null
+            : _otherMembersController.text,
+        monitoringType: widget.monitoringType,
+        startTime: startTime,
+        endTime: endTime,
+        isDraft: false,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
+      final service = ref.read(fieldOutingServiceProvider);
+      final now = DateTime.now().toIso8601String();
+
+      if (widget.monitoringType == 'vegetation') {
+        final childRecords = _plots.map((plot) {
+          final effectivePlotId = plot.plotId.isNotEmpty
+              ? plot.plotId
+              : _generatePlotId(plot.transectId, plot.plotNumber);
+          return {
+          'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
+          'transect_id': plot.transectId,
+          'plot_number': plot.plotNumber,
+          'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
+          'habitat_type': plot.habitatType,
+          'distance_along_transect_m': plot.distanceAlongTransect,
+          'latitude': plot.latitude,
+          'longitude': plot.longitude,
+          'elevation_m': plot.elevation,
+          'canopy_height_m': plot.canopyHeight,
+          'thatch_height_m': plot.thatchHeight,
+          'species_observations': jsonEncode(plot.species.map((s) => {
+            'species_code': s.speciesCode,
+            'percentage_cover': s.percentageCover,
+          }).toList()),
+          'photo_local_path': plot.photoPath,
+          'notes': plot.notes,
+          'sync_status': 'pending',
+          'created_at': now,
+          'updated_at': now,
+          };
+        }).toList();
+        await service.saveFieldOutingWithChildren(outing, childRecords, 'vegetation_records');
+      } else if (widget.monitoringType == 'hydrology') {
+        final childRecords = [
+          {
+            'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
+            'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
+            'wlr_type': _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
+            'serial_number': _serialNumberController.text,
+            'waypoint_number': _waypointNumberController.text,
+            'rtk_elevation_navd88_m': double.tryParse(_rtkElevationController.text),
+            'water_above_below_nut_m': double.tryParse(_waterAboveBelowController.text),
+            'well_rim_to_water_m': double.tryParse(_wellRimToWaterController.text),
+            'well_rim_to_marsh_m': double.tryParse(_wellRimToMarshController.text),
+            'sync_status': 'pending',
+            'created_at': now,
+            'updated_at': now,
+          }
+        ];
+        await service.saveFieldOutingWithChildren(outing, childRecords, 'hydrology_records');
+      } else if (widget.monitoringType == 'elevation') {
+        final childRecords = [
+          {
+            'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
+            'transect_id': _transectIdController.text,
+            'point_number': int.tryParse(_pointNumberController.text) ?? 1,
+            'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
+            'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
+            'elevation_navd88_m': double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
+            'feature_type': _featureTypeController.text.isEmpty ? null : _featureTypeController.text,
+            'sync_status': 'pending',
+            'created_at': now,
+            'updated_at': now,
+          }
+        ];
+        await service.saveFieldOutingWithChildren(outing, childRecords, 'elevation_records');
+      } else {
+        await service.saveFieldOuting(outing);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Field session saved successfully!'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        // Navigate back to home after a short delay
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error saving field session: $e')),
         );
       }
     }
