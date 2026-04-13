@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import '../models/field_outing/field_outing.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/species_service.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -152,55 +153,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     'Transition'
   ];
 
-  // All species with display labels (code - common name)
-  static const List<Map<String, String>> _allSpecies = [
-    {'code': 'AGMAR', 'label': 'AGMAR - Goat Rue'},
-    {'code': 'AGSTO', 'label': 'AGSTO - Creeping Bent'},
-    {'code': 'ARANS', 'label': 'ARANS - Silverweed'},
-    {'code': 'ATPAT', 'label': 'ATPAT - Spearscale'},
-    {'code': 'BAHAL', 'label': 'BAHAL - Groundsel Bush'},
-    {'code': 'BARE', 'label': 'BARE - Bare Ground'},
-    {'code': 'BOMAR', 'label': 'BOMAR - Sea Bulrush'},
-    {'code': 'BOROB', 'label': 'BOROB - Sturdy Bulrush'},
-    {'code': 'CASEP', 'label': 'CASEP - Bindweed'},
-    {'code': 'DEAD', 'label': 'DEAD - Dead Vegetation'},
-    {'code': 'DISPI', 'label': 'DISPI - Desert Saltgrass'},
-    {'code': 'FERUB', 'label': 'FERUB - Red Fescue'},
-    {'code': 'GLMAR', 'label': 'GLMAR - Sea Milkwort'},
-    {'code': 'IMCAP', 'label': 'IMCAP - Orange Balsam'},
-    {'code': 'IVFRU', 'label': 'IVFRU - Marsh Elder'},
-    {'code': 'JUBAL', 'label': 'JUBAL - Baltic Rush'},
-    {'code': 'JUEFF', 'label': 'JUEFF - Soft Rush'},
-    {'code': 'JUGER', 'label': 'JUGER - Black Grass'},
-    {'code': 'LICAR', 'label': 'LICAR - Sea Lavender'},
-    {'code': 'LYSAL', 'label': 'LYSAL - Purple Loosestrife'},
-    {'code': 'MYGAL', 'label': 'MYGAL - Sweet Gale'},
-    {'code': 'MYPEN', 'label': 'MYPEN - Northern Bayberry'},
-    {'code': 'PAVIR', 'label': 'PAVIR - Switchgrass'},
-    {'code': 'PHARU', 'label': 'PHARU - Reed Canary Grass'},
-    {'code': 'PHAUS', 'label': 'PHAUS - Common Reed'},
-    {'code': 'PLMAR', 'label': 'PLMAR - Goose-tongue'},
-    {'code': 'PORUM', 'label': 'PORUM - Bushy Knotweed'},
-    {'code': 'PUMAR', 'label': 'PUMAR - Alkali Grass'},
-    {'code': 'RORAG', 'label': 'RORAG - Rugosa Rose'},
-    {'code': 'RUMAR', 'label': 'RUMAR - Widgeon Grass'},
-    {'code': 'SADEP', 'label': 'SADEP - Glasswort'},
-    {'code': 'SCAME', 'label': 'SCAME - Chairmaker Bulrush'},
-    {'code': 'SOSEM', 'label': 'SOSEM - Seaside Goldenrod'},
-    {'code': 'SPALT', 'label': 'SPALT - Smooth Cordgrass'},
-    {'code': 'SPLAT', 'label': 'SPLAT - Meadowsweet'},
-    {'code': 'SPPAT', 'label': 'SPPAT - Salt Meadow Cordgrass'},
-    {'code': 'SPPEC', 'label': 'SPPEC - Prairie Cordgrass'},
-    {'code': 'SULIN', 'label': 'SULIN - Alkali Seepweed'},
-    {'code': 'SYTEN', 'label': 'SYTEN - Alkali Marsh Aster'},
-    {'code': 'TECAN', 'label': 'TECAN - Canada Germander'},
-    {'code': 'TORAD', 'label': 'TORAD - Poison Ivy'},
-    {'code': 'TRMAR', 'label': 'TRMAR - Seaside Arrowgrass'},
-    {'code': 'TYANG', 'label': 'TYANG - Narrow-leaved Cattail'},
-    {'code': 'TYLAT', 'label': 'TYLAT - Cattail'},
-    {'code': 'UNK', 'label': 'UNK - Unknown Species'},
-    {'code': 'WRACK', 'label': 'WRACK - Wrack'},
-  ];
+  // Species loaded from API/cache
+  List<SpeciesItem> _allSpecies = [];
 
   String _generatePlotId(String transectId, int plotNumber) {
     final parts = [transectId, plotNumber.toString()]
@@ -214,12 +168,15 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   void initState() {
     super.initState();
     _plots = [];
-    // Default visibility from the selected org
+    // Load species and default visibility after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final org = ref.read(selectedOrgProvider);
       if (org != null && mounted) {
         setState(() => _visibility = org.defaultVisibility);
       }
+      SpeciesService.instance.fetchAndCache().then((species) {
+        if (mounted) setState(() => _allSpecies = species);
+      });
     });
     if (widget.monitoringType == 'vegetation' && widget.draftId == null) {
       _plots.add(PlotData(
@@ -1419,7 +1376,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
 class _SpeciesInput extends StatefulWidget {
   final PlotData plot;
-  final List<Map<String, String>> allSpecies;
+  final List<SpeciesItem> allSpecies;
   final VoidCallback onChanged;
 
   const _SpeciesInput({
@@ -1450,24 +1407,21 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     super.dispose();
   }
 
-  List<Map<String, String>> _filteredSpecies() {
+  List<SpeciesItem> _filteredSpecies() {
     final q = _searchQuery.toLowerCase().trim();
     if (q.isEmpty) return [];
 
     final addedCodes = widget.plot.species.map((s) => s.speciesCode).toSet();
 
     return widget.allSpecies.where((s) {
-      final code = s['code']!;
-      if (_pinnedCodes.contains(code)) return false;
-      if (addedCodes.contains(code)) return false;
-      final label = s['label']!.toLowerCase();
-      return code.toLowerCase().contains(q) || label.contains(q);
+      if (_pinnedCodes.contains(s.code)) return false;
+      if (addedCodes.contains(s.code)) return false;
+      final haystack = '${s.label.toLowerCase()} ${s.scientificName.toLowerCase()}';
+      return s.code.toLowerCase().contains(q) || haystack.contains(q);
     }).toList()
       ..sort((a, b) {
-        final aCode = a['code']!.toLowerCase();
-        final bCode = b['code']!.toLowerCase();
-        final aStarts = aCode.startsWith(q) ? 0 : 1;
-        final bStarts = bCode.startsWith(q) ? 0 : 1;
+        final aStarts = a.code.toLowerCase().startsWith(q) ? 0 : 1;
+        final bStarts = b.code.toLowerCase().startsWith(q) ? 0 : 1;
         return aStarts.compareTo(bStarts);
       });
   }
@@ -1475,7 +1429,6 @@ class _SpeciesInputState extends State<_SpeciesInput> {
   void _updatePinned(String code, String rawValue) {
     final percent = int.tryParse(rawValue);
     final plot = widget.plot;
-
     setState(() {
       plot.species.removeWhere((s) => s.speciesCode == code);
       if (percent != null && percent > 0) {
@@ -1488,14 +1441,12 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     widget.onChanged();
   }
 
-  void _addExtra(Map<String, String> species) {
-    final code = species['code']!;
+  void _addExtra(SpeciesItem species) {
     final plot = widget.plot;
-    if (plot.species.any((s) => s.speciesCode == code)) return;
-
+    if (plot.species.any((s) => s.speciesCode == species.code)) return;
     setState(() {
-      plot.species.add(SpeciesObservation(speciesCode: code, percentageCover: 0));
-      plot.extraControllers[code] = TextEditingController(text: '');
+      plot.species.add(SpeciesObservation(speciesCode: species.code, percentageCover: 0));
+      plot.extraControllers[species.code] = TextEditingController(text: '');
       _searchController.clear();
       _searchQuery = '';
     });
@@ -1526,6 +1477,24 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     widget.onChanged();
   }
 
+  Widget _speciesLabel(BuildContext context, String code, String commonLabel, String scientificName) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(commonLabel, style: theme.textTheme.bodyMedium),
+        Text(
+          scientificName,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontStyle: FontStyle.italic,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1534,6 +1503,9 @@ class _SpeciesInputState extends State<_SpeciesInput> {
         .where((s) => !_pinnedCodes.contains(s.speciesCode))
         .toList();
     final filtered = _filteredSpecies();
+
+    // Build a lookup map for extra species scientific names
+    final speciesMap = {for (final s in widget.allSpecies) s.code: s};
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1545,25 +1517,18 @@ class _SpeciesInputState extends State<_SpeciesInput> {
         ),
         const SizedBox(height: 12),
 
-        // Pinned species rows
-        ...(widget.allSpecies
-            .where((s) => _pinnedCodes.contains(s['code']))
-            .toList()
-          ..sort((a, b) => _pinnedCodes.indexOf(a['code']!)
-              .compareTo(_pinnedCodes.indexOf(b['code']!))))
-            .map((s) {
-          final code = s['code']!;
-          final label = _pinnedLabels[code] ?? code;
+        // Pinned species rows (always shown in fixed order)
+        ..._pinnedCodes.map((code) {
+          final commonLabel = _pinnedLabels[code] ?? code;
+          final scientificName = speciesMap[code]?.scientificName ?? '';
           final controller = plot.pinnedControllers[code]!;
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: Text(
-                    '$code \u2013 $label',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  child: _speciesLabel(context, code, '$code \u2013 $commonLabel', scientificName),
                 ),
                 SizedBox(
                   width: 64,
@@ -1590,17 +1555,17 @@ class _SpeciesInputState extends State<_SpeciesInput> {
           const Divider(height: 20),
           ...extraSpecies.map((obs) {
             final code = obs.speciesCode;
-            final labelEntry = widget.allSpecies.firstWhere(
-              (s) => s['code'] == code,
-              orElse: () => {'code': code, 'label': code},
-            );
+            final item = speciesMap[code];
+            final commonLabel = item?.label ?? code;
+            final scientificName = item?.scientificName ?? '';
             final controller = plot.extraControllers[code] ??
                 TextEditingController(text: obs.percentageCover.toString());
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Expanded(child: Text(labelEntry['label']!, style: theme.textTheme.bodyMedium)),
+                  Expanded(child: _speciesLabel(context, code, commonLabel, scientificName)),
                   SizedBox(
                     width: 64,
                     child: TextField(
@@ -1649,7 +1614,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
               border: Border.all(color: theme.colorScheme.outline),
               borderRadius: BorderRadius.circular(8),
             ),
-            constraints: const BoxConstraints(maxHeight: 200),
+            constraints: const BoxConstraints(maxHeight: 220),
             child: ListView.separated(
               shrinkWrap: true,
               padding: EdgeInsets.zero,
@@ -1659,7 +1624,11 @@ class _SpeciesInputState extends State<_SpeciesInput> {
                 final s = filtered[i];
                 return ListTile(
                   dense: true,
-                  title: Text(s['label']!, style: theme.textTheme.bodyMedium),
+                  title: Text(s.label, style: theme.textTheme.bodyMedium),
+                  subtitle: Text(
+                    s.scientificName,
+                    style: theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                  ),
                   trailing: const Icon(Icons.add, size: 18),
                   onTap: () => _addExtra(s),
                 );
