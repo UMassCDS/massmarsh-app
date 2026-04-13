@@ -29,6 +29,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           _emailController.text.trim(),
           _passwordController.text,
         );
+    if (!mounted) return;
+    if (ref.read(authProvider).isAuthenticated) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/org-select', (route) => false);
+    }
   }
 
   @override
