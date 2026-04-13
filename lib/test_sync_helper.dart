@@ -8,7 +8,7 @@ class TestSyncHelper {
   static const _uuid = Uuid();
 
   /// Create a test field outing with vegetation records and sync it
-  static Future<void> createAndSyncTestOuting() async {
+  static Future<void> createAndSyncTestOuting({required int orgId}) async {
     final db = await AppDatabase.instance.database;
 
     // Generate IDs
@@ -21,7 +21,7 @@ class TestSyncHelper {
     // 1. Create field outing
     final outingId = await db.insert('field_outings', {
       'local_id': outingLocalId,
-      'org_id': 1,
+      'org_id': orgId,
       'crew_leader': 'Test Crew Leader',
       'site_name': 'Test Site - Crane Estate',
       'other_members': 'Test Member 1, Test Member 2',

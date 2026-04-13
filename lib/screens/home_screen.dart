@@ -69,7 +69,8 @@ class HomeScreen extends ConsumerWidget {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Creating test data and syncing...')),
           );
-          await TestSyncHelper.createAndSyncTestOuting();
+          final orgId = ref.read(selectedOrgIdProvider);
+          await TestSyncHelper.createAndSyncTestOuting(orgId: orgId);
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
