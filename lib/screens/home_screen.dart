@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
+import '../providers/org_provider.dart';
 import '../test_sync_helper.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -10,7 +11,28 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('MassMarsh'),
+        title: Column(
+          children: [
+            const Text('MassMarsh'),
+            GestureDetector(
+              onTap: () {
+                ref.read(selectedOrgProvider.notifier).clear();
+                Navigator.of(context).pushReplacementNamed('/org-select');
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    ref.watch(selectedOrgProvider)?.name ?? '',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                  ),
+                  const SizedBox(width: 2),
+                  const Icon(Icons.swap_horiz, size: 14),
+                ],
+              ),
+            ),
+          ],
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -35,6 +57,7 @@ class HomeScreen extends ConsumerWidget {
                 ),
               );
               if (confirmed == true) {
+                ref.read(selectedOrgProvider.notifier).clear();
                 await ref.read(authProvider.notifier).logout();
               }
             },

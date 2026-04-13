@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/field_outing/field_outing.dart';
 import '../providers/field_outing_provider.dart';
+import '../providers/org_provider.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -1238,7 +1239,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
       // Create the field outing object as draft
       final outing = FieldOuting(
-        orgId: 1, // Hardcoded for now, should come from auth
+        orgId: ref.read(selectedOrgIdProvider),
         crewLeader: _crewLeaderController.text,
         siteName: _siteNameController.text,
         otherMembers: _otherMembersController.text.isEmpty
@@ -1367,7 +1368,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
       // Create the field outing object
       final outing = FieldOuting(
-        orgId: 1, // Hardcoded for now, should come from auth
+        orgId: ref.read(selectedOrgIdProvider),
         crewLeader: _crewLeaderController.text,
         siteName: _siteNameController.text,
         otherMembers: _otherMembersController.text.isEmpty

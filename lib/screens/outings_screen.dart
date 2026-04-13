@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/field_outing_provider.dart';
+import '../providers/org_provider.dart';
 import 'outing_details_screen.dart';
 
 class OutingsScreen extends ConsumerWidget {
@@ -8,8 +9,7 @@ class OutingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // For now, using a hardcoded org_id of 1. In a real app, this would come from auth
-    const orgId = 1;
+    final orgId = ref.watch(selectedOrgIdProvider);
 
     final outingsAsync = ref.watch(fieldOutingsProvider(orgId));
 

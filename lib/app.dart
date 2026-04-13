@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
+import 'providers/org_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/form_screen.dart';
 import 'screens/outings_screen.dart';
 import 'screens/drafts_screen.dart';
+import 'screens/org_selection_screen.dart';
 
 /// Main app widget
 class MassMarshApp extends ConsumerWidget {
@@ -14,6 +16,7 @@ class MassMarshApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
+    final selectedOrg = ref.watch(selectedOrgProvider);
 
     return MaterialApp(
       title: 'MassMarsh',
@@ -33,8 +36,18 @@ class MassMarshApp extends ConsumerWidget {
         useMaterial3: true,
       ),
       themeMode: ThemeMode.system,
-      home: _resolveHome(auth),
+      home: _resolveHome(auth, selectedOrg),
       onGenerateRoute: (settings) {
+        if (settings.name == '/home') {
+          return MaterialPageRoute(
+            builder: (context) => const HomeScreen(),
+          );
+        }
+        if (settings.name == '/org-select') {
+          return MaterialPageRoute(
+            builder: (context) => const OrgSelectionScreen(),
+          );
+        }
         if (settings.name == '/form') {
           final monitoringType = settings.arguments as String;
           return MaterialPageRoute(
@@ -51,19 +64,19 @@ class MassMarshApp extends ConsumerWidget {
             builder: (context) => const DraftsScreen(),
           );
         }
-        // Add more routes as needed
         return null;
       },
     );
   }
 
-  Widget _resolveHome(AuthState auth) {
+  Widget _resolveHome(AuthState auth, dynamic selectedOrg) {
     if (!auth.isInitialized) {
-      // Waiting for session restore — show a splash/loading screen
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    return auth.isAuthenticated ? const HomeScreen() : const LoginScreen();
+    if (!auth.isAuthenticated) return const LoginScreen();
+    if (selectedOrg == null) return const OrgSelectionScreen();
+    return const HomeScreen();
   }
 }
