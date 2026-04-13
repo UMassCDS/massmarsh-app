@@ -13,7 +13,7 @@ import 'seeds/template_seeds.dart';
 /// Main database class for MassMarsh app
 class AppDatabase {
   static const String _dbName = 'mass_marsh.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   static final AppDatabase _instance = AppDatabase._internal();
 
@@ -117,6 +117,45 @@ class AppDatabase {
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE vegetation_records ADD COLUMN plot_id TEXT');
+    }
+    if (oldVersion < 4) {
+      // Remove FK constraint on org_id — org IDs come from the API, not local DB.
+      // SQLite requires recreating the table to drop a constraint.
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('ALTER TABLE field_outings RENAME TO _field_outings_old');
+      await db.execute('''
+        CREATE TABLE field_outings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          local_id TEXT UNIQUE,
+          server_id INTEGER UNIQUE,
+          kobo_id INTEGER UNIQUE,
+          kobo_uuid TEXT UNIQUE,
+          org_id INTEGER NOT NULL,
+          created_by_user_id INTEGER REFERENCES users(id),
+          crew_leader TEXT NOT NULL,
+          site_name TEXT NOT NULL,
+          other_members TEXT,
+          monitoring_type TEXT NOT NULL CHECK(monitoring_type IN ('vegetation', 'hydrology', 'elevation')),
+          start_time TEXT,
+          end_time TEXT,
+          submission_time TEXT,
+          latitude REAL,
+          longitude REAL,
+          approval_status TEXT DEFAULT 'pending' CHECK(approval_status IN ('pending', 'approved', 'rejected')),
+          approved_by_user_id INTEGER REFERENCES users(id),
+          approved_at TEXT,
+          rejection_reason TEXT,
+          sync_status TEXT DEFAULT 'pending',
+          is_draft INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO field_outings SELECT * FROM _field_outings_old
+      ''');
+      await db.execute('DROP TABLE _field_outings_old');
+      await db.execute('PRAGMA foreign_keys = ON');
     }
   }
 

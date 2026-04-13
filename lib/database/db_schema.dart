@@ -88,7 +88,7 @@ class DbSchema {
       server_id INTEGER UNIQUE,
       kobo_id INTEGER UNIQUE,
       kobo_uuid TEXT UNIQUE,
-      org_id INTEGER NOT NULL REFERENCES organizations(id),
+      org_id INTEGER NOT NULL,
       created_by_user_id INTEGER REFERENCES users(id),
       crew_leader TEXT NOT NULL,
       site_name TEXT NOT NULL,
