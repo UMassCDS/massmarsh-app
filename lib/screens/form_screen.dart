@@ -55,6 +55,8 @@ class PlotData {
   final TextEditingController latController;
   final TextEditingController lngController;
   final TextEditingController plotIdController;
+  final Map<String, TextEditingController> pinnedControllers;
+  final Map<String, TextEditingController> extraControllers;
 
   PlotData({
     required this.transectId,
@@ -74,12 +76,33 @@ class PlotData {
     this.species = const [],
   })  : latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
         lngController = TextEditingController(text: longitude == 0 ? '' : longitude.toString()),
-        plotIdController = TextEditingController(text: plotId);
+        plotIdController = TextEditingController(text: plotId),
+        pinnedControllers = Map.fromEntries(
+          ['SPALT', 'SPPAT', 'BARE', 'DEAD'].map((code) {
+            final existing = species.where((s) => s.speciesCode == code);
+            final text = existing.isNotEmpty ? existing.first.percentageCover.toString() : '';
+            return MapEntry(code, TextEditingController(text: text));
+          }),
+        ),
+        extraControllers = Map.fromEntries(
+          species
+              .where((s) => !{'SPALT', 'SPPAT', 'BARE', 'DEAD'}.contains(s.speciesCode))
+              .map((s) => MapEntry(
+                    s.speciesCode,
+                    TextEditingController(text: s.percentageCover.toString()),
+                  )),
+        );
 
   void dispose() {
     latController.dispose();
     lngController.dispose();
     plotIdController.dispose();
+    for (final c in pinnedControllers.values) {
+      c.dispose();
+    }
+    for (final c in extraControllers.values) {
+      c.dispose();
+    }
   }
 }
 
@@ -94,6 +117,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // For vegetation monitoring - store multiple plots
   late List<PlotData> _plots;
   int _nextPlotNumber = 1;
+
+  // Visibility
+  String _visibility = 'public';
+  String? _embargoUntil;
 
   // Image picker
   final ImagePicker _imagePicker = ImagePicker();
@@ -187,6 +214,13 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   void initState() {
     super.initState();
     _plots = [];
+    // Default visibility from the selected org
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final org = ref.read(selectedOrgProvider);
+      if (org != null && mounted) {
+        setState(() => _visibility = org.defaultVisibility);
+      }
+    });
     if (widget.monitoringType == 'vegetation' && widget.draftId == null) {
       _plots.add(PlotData(
         transectId: '',
@@ -476,6 +510,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
               _buildTimeField(_startTimeController, 'Start Time'),
               _buildTimeField(_endTimeController, 'End Time'),
+              _buildVisibilitySelector(),
 
               const SizedBox(height: 24),
 
@@ -767,153 +802,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             const SizedBox(height: 16),
 
             // Species observations
-            Text(
-              'Species in this Plot (${plot.species.length})',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            if (plot.species.isEmpty)
-              Text(
-                'No species added yet',
-                style: Theme.of(context).textTheme.bodySmall,
-              )
-            else
-              ...plot.species.asMap().entries.map((entry) {
-                int speciesIndex = entry.key;
-                SpeciesObservation obs = entry.value;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(obs.speciesCode),
-                      ),
-                      SizedBox(
-                        width: 80,
-                        child: Text('${obs.percentageCover}%', textAlign: TextAlign.center),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                        padding: EdgeInsets.zero,
-                        onPressed: () {
-                          setState(() {
-                            _plots[index].species.removeAt(speciesIndex);
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                );
-              }),
-
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () {
-                _showAddSpeciesDialog(index);
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Add Species'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green[600],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddSpeciesDialog(int plotIndex) {
-    String selectedSpecies = _allSpecies.first['code']!;
-    final coverController = TextEditingController(text: '50');
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (dialogContext, dialogSetState) => AlertDialog(
-          title: const Text('Add Species'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButton<String>(
-                value: selectedSpecies,
-                isExpanded: true,
-                items: _allSpecies.map((species) {
-                  return DropdownMenuItem(
-                    value: species['code']!,
-                    child: Text(species['label']!),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    dialogSetState(() {
-                      selectedSpecies = value;
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: coverController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Percentage Cover (0–100)',
-                  suffixText: '%',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final cover = int.tryParse(coverController.text) ?? 0;
-                final clampedCover = cover.clamp(0, 100);
-                final speciesCode = selectedSpecies;
-                
-                // Check for duplicate species
-                final alreadyExists = _plots[plotIndex].species.any(
-                  (s) => s.speciesCode == speciesCode,
-                );
-                
-                if (alreadyExists) {
-                  // Show error and don't close dialog
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('This species is already added to Plot ${plotIndex + 1}'),
-                      backgroundColor: Colors.red,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                  return;
-                }
-                
-                Navigator.of(dialogContext).pop();
-                
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    setState(() {
-                      _plots[plotIndex].species.add(
-                        SpeciesObservation(
-                          speciesCode: speciesCode,
-                          percentageCover: clampedCover,
-                        ),
-                      );
-                    });
-                  }
-                  coverController.dispose();
-                });
-              },
-              child: const Text('Add'),
+            _SpeciesInput(
+              plot: plot,
+              allSpecies: _allSpecies,
+              onChanged: () => setState(() {}),
             ),
           ],
         ),
@@ -1054,6 +946,51 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         _buildTextField(_elevationNavd88Controller, 'Elevation (NAVD88 m)', Icons.landscape, inputType: TextInputType.number),
         _buildTextField(_featureTypeController, 'Feature Type', Icons.landscape, isOptional: true),
       ],
+    );
+  }
+
+  Widget _buildVisibilitySelector() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Visibility', style: TextStyle(fontWeight: FontWeight.w500)),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'public', label: Text('Public'), icon: Icon(Icons.public, size: 16)),
+              ButtonSegment(value: 'private', label: Text('Private'), icon: Icon(Icons.lock, size: 16)),
+              ButtonSegment(value: 'embargo', label: Text('Embargo'), icon: Icon(Icons.schedule, size: 16)),
+            ],
+            selected: {_visibility},
+            onSelectionChanged: (v) => setState(() {
+              _visibility = v.first;
+              if (_visibility != 'embargo') _embargoUntil = null;
+            }),
+          ),
+          if (_visibility == 'embargo') ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_today, size: 16),
+              label: Text(_embargoUntil != null
+                  ? 'Embargo until: $_embargoUntil'
+                  : 'Pick embargo date'),
+              onPressed: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now().add(const Duration(days: 90)),
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 3650)),
+                );
+                if (picked != null && mounted) {
+                  setState(() => _embargoUntil = picked.toIso8601String().substring(0, 10));
+                }
+              },
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1249,6 +1186,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         startTime: startTime,
         endTime: endTime,
         isDraft: true,
+        visibility: _visibility,
+        embargoUntil: _embargoUntil,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -1378,6 +1317,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         startTime: startTime,
         endTime: endTime,
         isDraft: false,
+        visibility: _visibility,
+        embargoUntil: _embargoUntil,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
@@ -1473,5 +1414,259 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         );
       }
     }
+  }
+}
+
+class _SpeciesInput extends StatefulWidget {
+  final PlotData plot;
+  final List<Map<String, String>> allSpecies;
+  final VoidCallback onChanged;
+
+  const _SpeciesInput({
+    required this.plot,
+    required this.allSpecies,
+    required this.onChanged,
+  });
+
+  @override
+  State<_SpeciesInput> createState() => _SpeciesInputState();
+}
+
+class _SpeciesInputState extends State<_SpeciesInput> {
+  static const _pinnedCodes = ['SPALT', 'SPPAT', 'BARE', 'DEAD'];
+  static const _pinnedLabels = {
+    'SPALT': 'Smooth Cordgrass',
+    'SPPAT': 'Salt Meadow Cordgrass',
+    'BARE': 'Bare Ground',
+    'DEAD': 'Dead Vegetation',
+  };
+
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, String>> _filteredSpecies() {
+    final q = _searchQuery.toLowerCase().trim();
+    if (q.isEmpty) return [];
+
+    final addedCodes = widget.plot.species.map((s) => s.speciesCode).toSet();
+
+    return widget.allSpecies.where((s) {
+      final code = s['code']!;
+      if (_pinnedCodes.contains(code)) return false;
+      if (addedCodes.contains(code)) return false;
+      final label = s['label']!.toLowerCase();
+      return code.toLowerCase().contains(q) || label.contains(q);
+    }).toList()
+      ..sort((a, b) {
+        final aCode = a['code']!.toLowerCase();
+        final bCode = b['code']!.toLowerCase();
+        final aStarts = aCode.startsWith(q) ? 0 : 1;
+        final bStarts = bCode.startsWith(q) ? 0 : 1;
+        return aStarts.compareTo(bStarts);
+      });
+  }
+
+  void _updatePinned(String code, String rawValue) {
+    final percent = int.tryParse(rawValue);
+    final plot = widget.plot;
+
+    setState(() {
+      plot.species.removeWhere((s) => s.speciesCode == code);
+      if (percent != null && percent > 0) {
+        plot.species.add(SpeciesObservation(
+          speciesCode: code,
+          percentageCover: percent.clamp(0, 100),
+        ));
+      }
+    });
+    widget.onChanged();
+  }
+
+  void _addExtra(Map<String, String> species) {
+    final code = species['code']!;
+    final plot = widget.plot;
+    if (plot.species.any((s) => s.speciesCode == code)) return;
+
+    setState(() {
+      plot.species.add(SpeciesObservation(speciesCode: code, percentageCover: 0));
+      plot.extraControllers[code] = TextEditingController(text: '');
+      _searchController.clear();
+      _searchQuery = '';
+    });
+    widget.onChanged();
+  }
+
+  void _removeExtra(String code) {
+    final plot = widget.plot;
+    setState(() {
+      plot.species.removeWhere((s) => s.speciesCode == code);
+      plot.extraControllers[code]?.dispose();
+      plot.extraControllers.remove(code);
+    });
+    widget.onChanged();
+  }
+
+  void _updateExtra(String code, String rawValue) {
+    final percent = int.tryParse(rawValue);
+    final plot = widget.plot;
+    final idx = plot.species.indexWhere((s) => s.speciesCode == code);
+    if (idx < 0 || percent == null) return;
+    setState(() {
+      plot.species[idx] = SpeciesObservation(
+        speciesCode: code,
+        percentageCover: percent.clamp(0, 100),
+      );
+    });
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final plot = widget.plot;
+    final extraSpecies = plot.species
+        .where((s) => !_pinnedCodes.contains(s.speciesCode))
+        .toList();
+    final filtered = _filteredSpecies();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header
+        Text(
+          'Species in this Plot (${plot.species.length})',
+          style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+
+        // Pinned species rows
+        ...(widget.allSpecies
+            .where((s) => _pinnedCodes.contains(s['code']))
+            .toList()
+          ..sort((a, b) => _pinnedCodes.indexOf(a['code']!)
+              .compareTo(_pinnedCodes.indexOf(b['code']!))))
+            .map((s) {
+          final code = s['code']!;
+          final label = _pinnedLabels[code] ?? code;
+          final controller = plot.pinnedControllers[code]!;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$code \u2013 $label',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                ),
+                SizedBox(
+                  width: 64,
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    textAlign: TextAlign.center,
+                    decoration: const InputDecoration(
+                      suffixText: '%',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      isDense: true,
+                    ),
+                    onChanged: (v) => _updatePinned(code, v),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+
+        // Extra (non-pinned) added species
+        if (extraSpecies.isNotEmpty) ...[
+          const Divider(height: 20),
+          ...extraSpecies.map((obs) {
+            final code = obs.speciesCode;
+            final labelEntry = widget.allSpecies.firstWhere(
+              (s) => s['code'] == code,
+              orElse: () => {'code': code, 'label': code},
+            );
+            final controller = plot.extraControllers[code] ??
+                TextEditingController(text: obs.percentageCover.toString());
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  Expanded(child: Text(labelEntry['label']!, style: theme.textTheme.bodyMedium)),
+                  SizedBox(
+                    width: 64,
+                    child: TextField(
+                      controller: controller,
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      decoration: const InputDecoration(
+                        suffixText: '%',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                        isDense: true,
+                      ),
+                      onChanged: (v) => _updateExtra(code, v),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _removeExtra(code),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+
+        // Search field
+        const SizedBox(height: 12),
+        TextField(
+          controller: _searchController,
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search, size: 20),
+            hintText: 'Search to add more species...',
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            isDense: true,
+          ),
+          onChanged: (v) => setState(() => _searchQuery = v),
+        ),
+
+        // Search results
+        if (filtered.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outline),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            constraints: const BoxConstraints(maxHeight: 200),
+            child: ListView.separated(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: filtered.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final s = filtered[i];
+                return ListTile(
+                  dense: true,
+                  title: Text(s['label']!, style: theme.textTheme.bodyMedium),
+                  trailing: const Icon(Icons.add, size: 18),
+                  onTap: () => _addExtra(s),
+                );
+              },
+            ),
+          ),
+      ],
+    );
   }
 }
