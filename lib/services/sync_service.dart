@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
@@ -23,6 +24,8 @@ class SyncService {
 
   /// Auth token for API requests
   String? _authToken;
+
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
   static SyncService? _instance;
 
@@ -393,6 +396,32 @@ class SyncService {
   /// Clear authentication token
   void clearAuthToken() {
     _authToken = null;
+    stopAutoSync();
+  }
+
+  /// Start listening for connectivity changes and retry pending uploads
+  /// when the device comes back online. Also fires immediately if online.
+  void startAutoSync() {
+    _connectivitySub?.cancel();
+
+    // Attempt sync now in case there are pending items and we're already online
+    uploadAllPendingOutings();
+
+    _connectivitySub = _connectivity.onConnectivityChanged.listen((results) {
+      final isOnline = results.contains(ConnectivityResult.mobile) ||
+          results.contains(ConnectivityResult.wifi) ||
+          results.contains(ConnectivityResult.ethernet);
+      if (isOnline) {
+        _logger.i('Connectivity restored — retrying pending uploads');
+        uploadAllPendingOutings();
+      }
+    });
+  }
+
+  /// Stop the connectivity listener (call on logout).
+  void stopAutoSync() {
+    _connectivitySub?.cancel();
+    _connectivitySub = null;
   }
 
   /// Check if device has internet connectivity

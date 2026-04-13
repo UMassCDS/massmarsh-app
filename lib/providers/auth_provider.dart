@@ -68,6 +68,7 @@ class AuthNotifier extends Notifier<AuthState> {
       SyncService.instance.setAuthToken(token);
       final user = await _authService.getMe(token);
       state = AuthState(token: token, user: user, isInitialized: true);
+      SyncService.instance.startAutoSync();
     } catch (_) {
       // Token expired or invalid — clear it and go to login
       await _storage.delete(key: _tokenKey);
@@ -88,6 +89,7 @@ class AuthNotifier extends Notifier<AuthState> {
         user: result.user,
         isInitialized: true,
       );
+      SyncService.instance.startAutoSync();
     } on DioException catch (e) {
       final message = e.response?.statusCode == 401
           ? 'Invalid email or password.'
