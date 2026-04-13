@@ -105,6 +105,8 @@ class DbSchema {
       rejection_reason TEXT,
       sync_status TEXT DEFAULT 'pending',
       is_draft INTEGER DEFAULT 0,
+      visibility TEXT,
+      embargo_until TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )

@@ -15,6 +15,7 @@ _$OrganizationImpl _$$OrganizationImplFromJson(Map<String, dynamic> json) =>
       contactEmail: json['contactEmail'] as String?,
       isActive: json['isActive'] as bool? ?? true,
       userRole: json['userRole'] as String,
+      defaultVisibility: json['defaultVisibility'] as String? ?? 'public',
       memberCount: (json['memberCount'] as num?)?.toInt(),
       createdAt: json['createdAt'] == null
           ? null
@@ -30,6 +31,7 @@ Map<String, dynamic> _$$OrganizationImplToJson(_$OrganizationImpl instance) =>
       'contactEmail': instance.contactEmail,
       'isActive': instance.isActive,
       'userRole': instance.userRole,
+      'defaultVisibility': instance.defaultVisibility,
       'memberCount': instance.memberCount,
       'createdAt': instance.createdAt?.toIso8601String(),
     };

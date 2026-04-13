@@ -131,6 +131,8 @@ class SyncService {
         'submission_time': outing['submission_time'],
         'latitude': outing['latitude'],
         'longitude': outing['longitude'],
+        if (outing['visibility'] != null) 'visibility': outing['visibility'],
+        if (outing['embargo_until'] != null) 'embargo_until': outing['embargo_until'],
       };
 
       // Fetch and add vegetation records

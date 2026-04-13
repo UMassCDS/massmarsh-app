@@ -13,7 +13,7 @@ import 'seeds/template_seeds.dart';
 /// Main database class for MassMarsh app
 class AppDatabase {
   static const String _dbName = 'mass_marsh.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   static final AppDatabase _instance = AppDatabase._internal();
 
@@ -156,6 +156,10 @@ class AppDatabase {
       ''');
       await db.execute('DROP TABLE _field_outings_old');
       await db.execute('PRAGMA foreign_keys = ON');
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE field_outings ADD COLUMN visibility TEXT');
+      await db.execute('ALTER TABLE field_outings ADD COLUMN embargo_until TEXT');
     }
   }
 

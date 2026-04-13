@@ -21,6 +21,8 @@ class FieldOuting {
   DateTime? approvedAt;
   String? rejectionReason;
   bool isDraft;
+  String? visibility; // public, private, embargo — null falls back to org default
+  String? embargoUntil; // ISO date string, only used when visibility == 'embargo'
   DateTime? createdAt;
   DateTime? updatedAt;
 
@@ -46,6 +48,8 @@ class FieldOuting {
     this.approvedAt,
     this.rejectionReason,
     this.isDraft = false,
+    this.visibility,
+    this.embargoUntil,
     this.createdAt,
     this.updatedAt,
   });
@@ -74,6 +78,8 @@ class FieldOuting {
       'approved_at': approvedAt?.toIso8601String(),
       'rejection_reason': rejectionReason,
       'is_draft': isDraft ? 1 : 0,
+      'visibility': visibility,
+      'embargo_until': embargoUntil,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -111,6 +117,8 @@ class FieldOuting {
           : null,
       rejectionReason: map['rejection_reason'] as String?,
       isDraft: (map['is_draft'] as int?) == 1,
+      visibility: map['visibility'] as String?,
+      embargoUntil: map['embargo_until'] as String?,
       createdAt: map['created_at'] != null
           ? DateTime.parse(map['created_at'] as String)
           : null,

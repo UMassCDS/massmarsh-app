@@ -13,6 +13,7 @@ class Organization with _$Organization {
     String? contactEmail,
     @Default(true) bool isActive,
     required String userRole, // viewer, contributor, manager, owner
+    @Default('public') String defaultVisibility, // public, private, embargo
     int? memberCount,
     DateTime? createdAt,
   }) = _Organization;

@@ -29,6 +29,7 @@ mixin _$Organization {
   bool get isActive => throw _privateConstructorUsedError;
   String get userRole =>
       throw _privateConstructorUsedError; // viewer, contributor, manager, owner
+  String get defaultVisibility => throw _privateConstructorUsedError;
   int? get memberCount => throw _privateConstructorUsedError;
   DateTime? get createdAt => throw _privateConstructorUsedError;
 
@@ -57,6 +58,7 @@ abstract class $OrganizationCopyWith<$Res> {
     String? contactEmail,
     bool isActive,
     String userRole,
+    String defaultVisibility,
     int? memberCount,
     DateTime? createdAt,
   });
@@ -84,6 +86,7 @@ class _$OrganizationCopyWithImpl<$Res, $Val extends Organization>
     Object? contactEmail = freezed,
     Object? isActive = null,
     Object? userRole = null,
+    Object? defaultVisibility = null,
     Object? memberCount = freezed,
     Object? createdAt = freezed,
   }) {
@@ -117,6 +120,10 @@ class _$OrganizationCopyWithImpl<$Res, $Val extends Organization>
                 ? _value.userRole
                 : userRole // ignore: cast_nullable_to_non_nullable
                       as String,
+            defaultVisibility: null == defaultVisibility
+                ? _value.defaultVisibility
+                : defaultVisibility // ignore: cast_nullable_to_non_nullable
+                      as String,
             memberCount: freezed == memberCount
                 ? _value.memberCount
                 : memberCount // ignore: cast_nullable_to_non_nullable
@@ -148,6 +155,7 @@ abstract class _$$OrganizationImplCopyWith<$Res>
     String? contactEmail,
     bool isActive,
     String userRole,
+    String defaultVisibility,
     int? memberCount,
     DateTime? createdAt,
   });
@@ -174,6 +182,7 @@ class __$$OrganizationImplCopyWithImpl<$Res>
     Object? contactEmail = freezed,
     Object? isActive = null,
     Object? userRole = null,
+    Object? defaultVisibility = null,
     Object? memberCount = freezed,
     Object? createdAt = freezed,
   }) {
@@ -207,6 +216,10 @@ class __$$OrganizationImplCopyWithImpl<$Res>
             ? _value.userRole
             : userRole // ignore: cast_nullable_to_non_nullable
                   as String,
+        defaultVisibility: null == defaultVisibility
+            ? _value.defaultVisibility
+            : defaultVisibility // ignore: cast_nullable_to_non_nullable
+                  as String,
         memberCount: freezed == memberCount
             ? _value.memberCount
             : memberCount // ignore: cast_nullable_to_non_nullable
@@ -231,6 +244,7 @@ class _$OrganizationImpl implements _Organization {
     this.contactEmail,
     this.isActive = true,
     required this.userRole,
+    this.defaultVisibility = 'public',
     this.memberCount,
     this.createdAt,
   });
@@ -255,13 +269,15 @@ class _$OrganizationImpl implements _Organization {
   final String userRole;
   // viewer, contributor, manager, owner
   @override
+  final String defaultVisibility;
+  @override
   final int? memberCount;
   @override
   final DateTime? createdAt;
 
   @override
   String toString() {
-    return 'Organization(id: $id, name: $name, slug: $slug, description: $description, contactEmail: $contactEmail, isActive: $isActive, userRole: $userRole, memberCount: $memberCount, createdAt: $createdAt)';
+    return 'Organization(id: $id, name: $name, slug: $slug, description: $description, contactEmail: $contactEmail, isActive: $isActive, userRole: $userRole, defaultVisibility: $defaultVisibility, memberCount: $memberCount, createdAt: $createdAt)';
   }
 
   @override
@@ -280,6 +296,8 @@ class _$OrganizationImpl implements _Organization {
                 other.isActive == isActive) &&
             (identical(other.userRole, userRole) ||
                 other.userRole == userRole) &&
+            (identical(other.defaultVisibility, defaultVisibility) ||
+                other.defaultVisibility == defaultVisibility) &&
             (identical(other.memberCount, memberCount) ||
                 other.memberCount == memberCount) &&
             (identical(other.createdAt, createdAt) ||
@@ -297,6 +315,7 @@ class _$OrganizationImpl implements _Organization {
     contactEmail,
     isActive,
     userRole,
+    defaultVisibility,
     memberCount,
     createdAt,
   );
@@ -324,6 +343,7 @@ abstract class _Organization implements Organization {
     final String? contactEmail,
     final bool isActive,
     required final String userRole,
+    final String defaultVisibility,
     final int? memberCount,
     final DateTime? createdAt,
   }) = _$OrganizationImpl;
@@ -345,6 +365,8 @@ abstract class _Organization implements Organization {
   bool get isActive;
   @override
   String get userRole; // viewer, contributor, manager, owner
+  @override
+  String get defaultVisibility;
   @override
   int? get memberCount;
   @override

@@ -38,6 +38,7 @@ class OrgService {
       contactEmail: json['contact_email'] as String?,
       isActive: json['is_active'] as bool? ?? true,
       userRole: (json['user_role'] ?? json['role'] ?? 'viewer') as String,
+      defaultVisibility: (json['default_visibility'] ?? 'public') as String,
       memberCount: (json['member_count'] as num?)?.toInt(),
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'] as String)
