@@ -124,7 +124,7 @@ class _OrgTile extends ConsumerWidget {
             if (org.description != null && org.description!.isNotEmpty)
               Text(org.description!),
             Text(
-              'Role: ${org.userRole}',
+              'Role: ${org.userRole[0].toUpperCase()}${org.userRole.substring(1)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
