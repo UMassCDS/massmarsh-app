@@ -122,7 +122,6 @@ class SyncService {
       final payload = <String, dynamic>{
         'org_id': outing['org_id'],
         'local_id': outing['local_id'],
-        'crew_leader': outing['crew_leader'],
         'site_name': outing['site_name'],
         'other_members': outing['other_members'],
         'monitoring_type': outing['monitoring_type'],

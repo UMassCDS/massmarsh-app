@@ -1,19 +1,21 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
+import '../providers/auth_provider.dart';
 
-class OutingDetailsScreen extends StatefulWidget {
+class OutingDetailsScreen extends ConsumerStatefulWidget {
   final FieldOuting outing;
 
   const OutingDetailsScreen({required this.outing, super.key});
 
   @override
-  State<OutingDetailsScreen> createState() => _OutingDetailsScreenState();
+  ConsumerState<OutingDetailsScreen> createState() => _OutingDetailsScreenState();
 }
 
-class _OutingDetailsScreenState extends State<OutingDetailsScreen> {
+class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
   List<Map<String, dynamic>> _childRecords = [];
   bool _loading = true;
 
@@ -65,7 +67,7 @@ class _OutingDetailsScreenState extends State<OutingDetailsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _sectionHeader('Session Info'),
-            _infoRow('Crew Leader', session.crewLeader),
+            _infoRow('Observer', ref.watch(authProvider).user?.fullName ?? 'Unknown'),
             if (session.otherMembers != null && session.otherMembers!.isNotEmpty)
               _infoRow('Other Members', session.otherMembers!),
             _infoRow('Monitoring Type', session.monitoringType),

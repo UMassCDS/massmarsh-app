@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../models/field_outing/field_outing.dart';
 import 'form_screen.dart';
@@ -131,7 +132,7 @@ class DraftsScreen extends ConsumerWidget {
                   Icon(Icons.person_outline, size: 16, color: Colors.grey[600]),
                   const SizedBox(width: 4),
                   Text(
-                    draft.crewLeader,
+                    ref.watch(authProvider).user?.fullName ?? 'Unknown',
                     style: TextStyle(color: Colors.grey[600]),
                   ),
                   const SizedBox(width: 16),

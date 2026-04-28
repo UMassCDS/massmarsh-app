@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/field_outing/field_outing.dart';
+import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/species_service.dart';
@@ -109,7 +110,6 @@ class PlotData {
 
 class _FormScreenState extends ConsumerState<FormScreen> {
   late final _formKey = GlobalKey<FormState>();
-  late final _crewLeaderController = TextEditingController();
   late final _siteNameController = TextEditingController();
   late final _otherMembersController = TextEditingController();
   late final _startTimeController = TextEditingController();
@@ -207,7 +207,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       if (draft == null) return;
       
       // Load basic fields
-      _crewLeaderController.text = draft.crewLeader;
       _siteNameController.text = draft.siteName;
       if (draft.otherMembers != null) {
         _otherMembersController.text = draft.otherMembers!;
@@ -354,7 +353,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     for (final plot in _plots) {
       plot.dispose();
     }
-    _crewLeaderController.dispose();
     _siteNameController.dispose();
     _otherMembersController.dispose();
     _startTimeController.dispose();
@@ -462,7 +460,11 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             children: [
               // COMMON FIELDS FOR ALL FORMS
               _buildSectionHeader('Field Session Information'),
-              _buildTextField(_crewLeaderController, 'Crew Leader Name', Icons.person),
+              _buildReadOnlyField(
+                'Observer',
+                ref.watch(authProvider).user?.fullName ?? '',
+                Icons.person,
+              ),
               _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
               _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
               _buildTimeField(_startTimeController, 'Start Time'),
@@ -964,6 +966,22 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     );
   }
 
+  Widget _buildReadOnlyField(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          prefixIcon: Icon(icon),
+          filled: true,
+          fillColor: Colors.grey.shade100,
+        ),
+        child: Text(value, style: const TextStyle(fontSize: 16)),
+      ),
+    );
+  }
+
   Widget _buildTextField(
     TextEditingController controller,
     String label,
@@ -1134,7 +1152,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       // Create the field outing object as draft
       final outing = FieldOuting(
         orgId: ref.read(selectedOrgIdProvider),
-        crewLeader: _crewLeaderController.text,
+        createdByUserId: ref.read(authProvider).user?.id,
         siteName: _siteNameController.text,
         otherMembers: _otherMembersController.text.isEmpty
             ? null
@@ -1265,7 +1283,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       // Create the field outing object
       final outing = FieldOuting(
         orgId: ref.read(selectedOrgIdProvider),
-        crewLeader: _crewLeaderController.text,
+        createdByUserId: ref.read(authProvider).user?.id,
         siteName: _siteNameController.text,
         otherMembers: _otherMembersController.text.isEmpty
             ? null

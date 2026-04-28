@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import 'outing_details_screen.dart';
@@ -57,7 +58,7 @@ class OutingsScreen extends ConsumerWidget {
                     children: [
                       const SizedBox(height: 4),
                       Text(
-                        'Crew: ${session.crewLeader}',
+                        'Observer: ${ref.watch(authProvider).user?.fullName ?? 'Unknown'}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
