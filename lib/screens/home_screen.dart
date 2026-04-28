@@ -190,12 +190,7 @@ class HomeScreen extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
-              onTap: () {
-                // Settings screen temporarily disabled
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Settings coming soon')),
-                );
-              },
+              onTap: () => Navigator.of(context).pushNamed('/settings'),
             ),
           ],
         ),

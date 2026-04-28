@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
 import 'providers/org_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/form_screen.dart';
 import 'screens/outings_screen.dart';
 import 'screens/drafts_screen.dart';
 import 'screens/org_selection_screen.dart';
+import 'screens/settings_screen.dart';
 
 /// Main app widget
 class MassMarshApp extends ConsumerWidget {
@@ -17,6 +19,7 @@ class MassMarshApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
     final selectedOrg = ref.watch(selectedOrgProvider);
+    final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
       title: 'MassMarsh',
@@ -35,7 +38,7 @@ class MassMarshApp extends ConsumerWidget {
         ),
         useMaterial3: true,
       ),
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       home: _resolveHome(auth, selectedOrg),
       onGenerateRoute: (settings) {
         if (settings.name == '/home') {
@@ -62,6 +65,11 @@ class MassMarshApp extends ConsumerWidget {
         if (settings.name == '/drafts') {
           return MaterialPageRoute(
             builder: (context) => const DraftsScreen(),
+          );
+        }
+        if (settings.name == '/settings') {
+          return MaterialPageRoute(
+            builder: (context) => const SettingsScreen(),
           );
         }
         return null;

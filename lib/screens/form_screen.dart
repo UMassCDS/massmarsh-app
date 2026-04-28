@@ -967,17 +967,39 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   }
 
   Widget _buildReadOnlyField(String label, String value, IconData icon) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          prefixIcon: Icon(icon),
-          filled: true,
-          fillColor: Colors.grey.shade100,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(4),
+          color: theme.colorScheme.surfaceContainerHighest,
         ),
-        child: Text(value, style: const TextStyle(fontSize: 16)),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(value, style: theme.textTheme.bodyLarge),
+                ],
+              ),
+            ),
+            Icon(Icons.lock_outline, size: 14, color: theme.colorScheme.onSurfaceVariant),
+          ],
+        ),
       ),
     );
   }
