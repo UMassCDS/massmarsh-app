@@ -13,7 +13,7 @@ import 'seeds/template_seeds.dart';
 /// Main database class for MassMarsh app
 class AppDatabase {
   static const String _dbName = 'mass_marsh.db';
-  static const int _dbVersion = 5;
+  static const int _dbVersion = 6;
 
   static final AppDatabase _instance = AppDatabase._internal();
 
@@ -160,6 +160,59 @@ class AppDatabase {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE field_outings ADD COLUMN visibility TEXT');
       await db.execute('ALTER TABLE field_outings ADD COLUMN embargo_until TEXT');
+    }
+    if (oldVersion < 6) {
+      // Drop kobo_id, kobo_uuid, and crew_leader columns.
+      // SQLite requires a table rebuild to drop columns.
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute(
+        'ALTER TABLE field_outings RENAME TO _field_outings_old',
+      );
+      await db.execute('''
+        CREATE TABLE field_outings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          local_id TEXT UNIQUE,
+          server_id INTEGER UNIQUE,
+          org_id INTEGER NOT NULL,
+          created_by_user_id INTEGER REFERENCES users(id),
+          site_name TEXT NOT NULL,
+          other_members TEXT,
+          monitoring_type TEXT NOT NULL CHECK(monitoring_type IN ('vegetation', 'hydrology', 'elevation')),
+          start_time TEXT,
+          end_time TEXT,
+          submission_time TEXT,
+          latitude REAL,
+          longitude REAL,
+          approval_status TEXT DEFAULT 'pending' CHECK(approval_status IN ('pending', 'approved', 'rejected')),
+          approved_by_user_id INTEGER REFERENCES users(id),
+          approved_at TEXT,
+          rejection_reason TEXT,
+          sync_status TEXT DEFAULT 'pending',
+          is_draft INTEGER DEFAULT 0,
+          visibility TEXT,
+          embargo_until TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      ''');
+      await db.execute('''
+        INSERT INTO field_outings (
+          id, local_id, server_id, org_id, created_by_user_id,
+          site_name, other_members, monitoring_type,
+          start_time, end_time, latitude, longitude,
+          approval_status, approved_by_user_id, approved_at, rejection_reason,
+          sync_status, is_draft, visibility, embargo_until, created_at, updated_at
+        )
+        SELECT
+          id, local_id, server_id, org_id, created_by_user_id,
+          site_name, other_members, monitoring_type,
+          start_time, end_time, latitude, longitude,
+          approval_status, approved_by_user_id, approved_at, rejection_reason,
+          sync_status, is_draft, visibility, embargo_until, created_at, updated_at
+        FROM _field_outings_old
+      ''');
+      await db.execute('DROP TABLE _field_outings_old');
+      await db.execute('PRAGMA foreign_keys = ON');
     }
   }
 

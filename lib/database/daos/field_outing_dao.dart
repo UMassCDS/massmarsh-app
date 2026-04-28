@@ -18,7 +18,7 @@ class FieldOutingDao {
       {
         'local_id': localId,
         'org_id': outing.orgId,
-        'crew_leader': outing.crewLeader,
+        'created_by_user_id': outing.createdByUserId,
         'site_name': outing.siteName,
         'other_members': outing.otherMembers,
         'monitoring_type': outing.monitoringType,
@@ -117,7 +117,6 @@ class FieldOutingDao {
   Future<void> updateFieldOuting(FieldOuting outing) async {
     final updates = <String, dynamic>{
       'monitoring_type': outing.monitoringType,
-      'crew_leader': outing.crewLeader,
       'site_name': outing.siteName,
       'other_members': outing.otherMembers,
       'start_time': outing.startTime?.toIso8601String(),
@@ -131,12 +130,6 @@ class FieldOutingDao {
       'updated_at': DateTime.now().toIso8601String(),
     };
 
-    // If we have server ID, also update kobo_id
-    if (outing.koboId != null) {
-      updates['kobo_id'] = outing.koboId;
-      updates['id'] = outing.id;
-    }
-
     // Update by local_id if no server ID yet
     final whereClause = outing.id != null ? 'id = ?' : 'local_id = ?';
     final whereArgs = [outing.id ?? outing.localId];
@@ -149,19 +142,15 @@ class FieldOutingDao {
     );
   }
 
-  /// Mark outing as synced (update with server IDs)
+  /// Mark outing as synced (update with server ID)
   Future<void> markSynced(
     String localId, {
     required int serverId,
-    required int koboId,
-    String? koboUuid,
   }) async {
     await db.update(
       'field_outings',
       {
         'id': serverId,
-        'kobo_id': koboId,
-        'kobo_uuid': koboUuid,
         'sync_status': 'synced',
         'is_draft': 0,
         'updated_at': DateTime.now().toIso8601String(),

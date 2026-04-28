@@ -2,11 +2,8 @@
 class FieldOuting {
   int? id;
   String? localId;
-  int? koboId;
-  String? koboUuid;
   int orgId;
   int? createdByUserId;
-  String crewLeader;
   String siteName;
   String? otherMembers;
   String monitoringType; // vegetation, hydrology, elevation
@@ -29,11 +26,8 @@ class FieldOuting {
   FieldOuting({
     this.id,
     this.localId,
-    this.koboId,
-    this.koboUuid,
     required this.orgId,
     this.createdByUserId,
-    required this.crewLeader,
     required this.siteName,
     this.otherMembers,
     required this.monitoringType,
@@ -59,11 +53,8 @@ class FieldOuting {
     return {
       'id': id,
       'local_id': localId,
-      'kobo_id': koboId,
-      'kobo_uuid': koboUuid,
       'org_id': orgId,
       'created_by_user_id': createdByUserId,
-      'crew_leader': crewLeader,
       'site_name': siteName,
       'other_members': otherMembers,
       'monitoring_type': monitoringType,
@@ -90,11 +81,8 @@ class FieldOuting {
     return FieldOuting(
       id: map['id'] as int?,
       localId: map['local_id'] as String?,
-      koboId: map['kobo_id'] as int?,
-      koboUuid: map['kobo_uuid'] as String?,
       orgId: map['org_id'] as int,
       createdByUserId: map['created_by_user_id'] as int?,
-      crewLeader: map['crew_leader'] as String,
       siteName: map['site_name'] as String,
       otherMembers: map['other_members'] as String?,
       monitoringType: map['monitoring_type'] as String,
