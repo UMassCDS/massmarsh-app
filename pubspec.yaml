@@ -35,7 +35,6 @@ dependencies:
 
   # Location & mapping
   geolocator: ^14.0.2
-  google_maps_flutter: ^2.5.0
 
   # Camera & image
   image_picker: ^1.0.4
