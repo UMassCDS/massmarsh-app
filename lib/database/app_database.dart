@@ -13,7 +13,7 @@ import 'seeds/template_seeds.dart';
 /// Main database class for MassMarsh app
 class AppDatabase {
   static const String _dbName = 'mass_marsh.db';
-  static const int _dbVersion = 6;
+  static const int _dbVersion = 7;
 
   static final AppDatabase _instance = AppDatabase._internal();
 
@@ -160,6 +160,32 @@ class AppDatabase {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE field_outings ADD COLUMN visibility TEXT');
       await db.execute('ALTER TABLE field_outings ADD COLUMN embargo_until TEXT');
+    }
+    if (oldVersion < 7) {
+      // Add protocol_cache table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS protocol_cache (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          org_id INTEGER NOT NULL UNIQUE,
+          protocol_code TEXT NOT NULL,
+          protocol_name TEXT NOT NULL,
+          definition_json TEXT NOT NULL,
+          cached_at TEXT DEFAULT (datetime('now'))
+        )
+      ''');
+      await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_protocol_cache_org ON protocol_cache(org_id)',
+      );
+      // Add protocol-specific columns to vegetation_records
+      await db.execute(
+        'ALTER TABLE vegetation_records ADD COLUMN protocol_code TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE vegetation_records ADD COLUMN subclass TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE vegetation_records ADD COLUMN rtk_point_number TEXT',
+      );
     }
     if (oldVersion < 6) {
       // Drop kobo_id, kobo_uuid, and crew_leader columns.

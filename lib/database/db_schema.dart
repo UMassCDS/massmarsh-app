@@ -36,6 +36,9 @@ class DbSchema {
     _syncQueueTable,
     _pendingUploadsTable,
     _syncStateTable,
+
+    // Protocol cache
+    _protocolCacheTable,
   ];
 
   // ============================================================================
@@ -115,25 +118,27 @@ class DbSchema {
       local_id TEXT UNIQUE,
       server_id INTEGER UNIQUE,
       outing_id INTEGER NOT NULL REFERENCES field_outings(id) ON DELETE CASCADE,
-      transect_id TEXT NOT NULL,
+      transect_id TEXT,
       plot_number INTEGER NOT NULL,
       plot_id TEXT,
-      habitat_type TEXT NOT NULL,
-      distance_along_transect_m REAL NOT NULL,
+      habitat_type TEXT,
+      distance_along_transect_m REAL,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
       elevation_m REAL,
       accuracy_m REAL,
-      canopy_height_m REAL NOT NULL,
-      thatch_height_m REAL NOT NULL,
+      canopy_height_m REAL,
+      thatch_height_m REAL,
       species_observations TEXT NOT NULL,
       photo_local_path TEXT,
       photo_filename TEXT,
       notes TEXT,
+      protocol_code TEXT,
+      subclass TEXT,
+      rtk_point_number TEXT,
       sync_status TEXT DEFAULT 'pending',
       created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(outing_id, transect_id, plot_number)
+      updated_at TEXT DEFAULT (datetime('now'))
     )
   ''';
 
@@ -433,6 +438,21 @@ class DbSchema {
     )
   ''';
 
+  // ============================================================================
+  // PROTOCOL CACHE TABLE
+  // ============================================================================
+
+  static const String _protocolCacheTable = '''
+    CREATE TABLE IF NOT EXISTS protocol_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id INTEGER NOT NULL UNIQUE,
+      protocol_code TEXT NOT NULL,
+      protocol_name TEXT NOT NULL,
+      definition_json TEXT NOT NULL,
+      cached_at TEXT DEFAULT (datetime('now'))
+    )
+  ''';
+
   /// Create all indices for performance
   static const List<String> createIndexStatements = [
     'CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)',
@@ -469,5 +489,6 @@ class DbSchema {
     'CREATE INDEX IF NOT EXISTS idx_form_submissions_template ON form_submissions(template_id)',
     'CREATE INDEX IF NOT EXISTS idx_form_submissions_sync ON form_submissions(sync_status)',
     'CREATE INDEX IF NOT EXISTS idx_form_submission_records_submission ON form_submission_records(submission_id)',
+    'CREATE INDEX IF NOT EXISTS idx_protocol_cache_org ON protocol_cache(org_id)',
   ];
 }

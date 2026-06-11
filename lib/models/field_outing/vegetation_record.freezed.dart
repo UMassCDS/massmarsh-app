@@ -40,6 +40,9 @@ mixin _$VegetationRecord {
   String? get photoLocalPath => throw _privateConstructorUsedError;
   String? get photoFilename => throw _privateConstructorUsedError;
   String? get notes => throw _privateConstructorUsedError;
+  String? get protocolCode => throw _privateConstructorUsedError;
+  String? get subclass => throw _privateConstructorUsedError;
+  String? get rtkPointNumber => throw _privateConstructorUsedError;
   String get syncStatus => throw _privateConstructorUsedError;
   DateTime? get createdAt => throw _privateConstructorUsedError;
   DateTime? get updatedAt => throw _privateConstructorUsedError;
@@ -80,6 +83,9 @@ abstract class $VegetationRecordCopyWith<$Res> {
     String? photoLocalPath,
     String? photoFilename,
     String? notes,
+    String? protocolCode,
+    String? subclass,
+    String? rtkPointNumber,
     String syncStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -119,6 +125,9 @@ class _$VegetationRecordCopyWithImpl<$Res, $Val extends VegetationRecord>
     Object? photoLocalPath = freezed,
     Object? photoFilename = freezed,
     Object? notes = freezed,
+    Object? protocolCode = freezed,
+    Object? subclass = freezed,
+    Object? rtkPointNumber = freezed,
     Object? syncStatus = null,
     Object? createdAt = freezed,
     Object? updatedAt = freezed,
@@ -197,6 +206,18 @@ class _$VegetationRecordCopyWithImpl<$Res, $Val extends VegetationRecord>
                 ? _value.notes
                 : notes // ignore: cast_nullable_to_non_nullable
                       as String?,
+            protocolCode: freezed == protocolCode
+                ? _value.protocolCode
+                : protocolCode // ignore: cast_nullable_to_non_nullable
+                      as String?,
+            subclass: freezed == subclass
+                ? _value.subclass
+                : subclass // ignore: cast_nullable_to_non_nullable
+                      as String?,
+            rtkPointNumber: freezed == rtkPointNumber
+                ? _value.rtkPointNumber
+                : rtkPointNumber // ignore: cast_nullable_to_non_nullable
+                      as String?,
             syncStatus: null == syncStatus
                 ? _value.syncStatus
                 : syncStatus // ignore: cast_nullable_to_non_nullable
@@ -243,6 +264,9 @@ abstract class _$$VegetationRecordImplCopyWith<$Res>
     String? photoLocalPath,
     String? photoFilename,
     String? notes,
+    String? protocolCode,
+    String? subclass,
+    String? rtkPointNumber,
     String syncStatus,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -281,6 +305,9 @@ class __$$VegetationRecordImplCopyWithImpl<$Res>
     Object? photoLocalPath = freezed,
     Object? photoFilename = freezed,
     Object? notes = freezed,
+    Object? protocolCode = freezed,
+    Object? subclass = freezed,
+    Object? rtkPointNumber = freezed,
     Object? syncStatus = null,
     Object? createdAt = freezed,
     Object? updatedAt = freezed,
@@ -359,6 +386,18 @@ class __$$VegetationRecordImplCopyWithImpl<$Res>
             ? _value.notes
             : notes // ignore: cast_nullable_to_non_nullable
                   as String?,
+        protocolCode: freezed == protocolCode
+            ? _value.protocolCode
+            : protocolCode // ignore: cast_nullable_to_non_nullable
+                  as String?,
+        subclass: freezed == subclass
+            ? _value.subclass
+            : subclass // ignore: cast_nullable_to_non_nullable
+                  as String?,
+        rtkPointNumber: freezed == rtkPointNumber
+            ? _value.rtkPointNumber
+            : rtkPointNumber // ignore: cast_nullable_to_non_nullable
+                  as String?,
         syncStatus: null == syncStatus
             ? _value.syncStatus
             : syncStatus // ignore: cast_nullable_to_non_nullable
@@ -384,20 +423,23 @@ class _$VegetationRecordImpl implements _VegetationRecord {
     this.localId,
     this.serverId,
     required this.outingId,
-    required this.transectId,
+    this.transectId = '',
     required this.plotNumber,
-    required this.habitatType,
-    required this.distanceAlongTransectM,
+    this.habitatType = '',
+    this.distanceAlongTransectM = 0.0,
     required this.latitude,
     required this.longitude,
     this.elevationM,
     this.accuracyM,
-    required this.canopyHeightM,
-    required this.thatchHeightM,
+    this.canopyHeightM = 0.0,
+    this.thatchHeightM = 0.0,
     required final List<SpeciesObservation> speciesObservations,
     this.photoLocalPath,
     this.photoFilename,
     this.notes,
+    this.protocolCode,
+    this.subclass,
+    this.rtkPointNumber,
     this.syncStatus = 'pending',
     this.createdAt,
     this.updatedAt,
@@ -415,12 +457,15 @@ class _$VegetationRecordImpl implements _VegetationRecord {
   @override
   final int outingId;
   @override
+  @JsonKey()
   final String transectId;
   @override
   final int plotNumber;
   @override
+  @JsonKey()
   final String habitatType;
   @override
+  @JsonKey()
   final double distanceAlongTransectM;
   @override
   final double latitude;
@@ -431,8 +476,10 @@ class _$VegetationRecordImpl implements _VegetationRecord {
   @override
   final double? accuracyM;
   @override
+  @JsonKey()
   final double canopyHeightM;
   @override
+  @JsonKey()
   final double thatchHeightM;
   final List<SpeciesObservation> _speciesObservations;
   @override
@@ -450,6 +497,12 @@ class _$VegetationRecordImpl implements _VegetationRecord {
   @override
   final String? notes;
   @override
+  final String? protocolCode;
+  @override
+  final String? subclass;
+  @override
+  final String? rtkPointNumber;
+  @override
   @JsonKey()
   final String syncStatus;
   @override
@@ -459,7 +512,7 @@ class _$VegetationRecordImpl implements _VegetationRecord {
 
   @override
   String toString() {
-    return 'VegetationRecord(id: $id, localId: $localId, serverId: $serverId, outingId: $outingId, transectId: $transectId, plotNumber: $plotNumber, habitatType: $habitatType, distanceAlongTransectM: $distanceAlongTransectM, latitude: $latitude, longitude: $longitude, elevationM: $elevationM, accuracyM: $accuracyM, canopyHeightM: $canopyHeightM, thatchHeightM: $thatchHeightM, speciesObservations: $speciesObservations, photoLocalPath: $photoLocalPath, photoFilename: $photoFilename, notes: $notes, syncStatus: $syncStatus, createdAt: $createdAt, updatedAt: $updatedAt)';
+    return 'VegetationRecord(id: $id, localId: $localId, serverId: $serverId, outingId: $outingId, transectId: $transectId, plotNumber: $plotNumber, habitatType: $habitatType, distanceAlongTransectM: $distanceAlongTransectM, latitude: $latitude, longitude: $longitude, elevationM: $elevationM, accuracyM: $accuracyM, canopyHeightM: $canopyHeightM, thatchHeightM: $thatchHeightM, speciesObservations: $speciesObservations, photoLocalPath: $photoLocalPath, photoFilename: $photoFilename, notes: $notes, protocolCode: $protocolCode, subclass: $subclass, rtkPointNumber: $rtkPointNumber, syncStatus: $syncStatus, createdAt: $createdAt, updatedAt: $updatedAt)';
   }
 
   @override
@@ -502,6 +555,12 @@ class _$VegetationRecordImpl implements _VegetationRecord {
             (identical(other.photoFilename, photoFilename) ||
                 other.photoFilename == photoFilename) &&
             (identical(other.notes, notes) || other.notes == notes) &&
+            (identical(other.protocolCode, protocolCode) ||
+                other.protocolCode == protocolCode) &&
+            (identical(other.subclass, subclass) ||
+                other.subclass == subclass) &&
+            (identical(other.rtkPointNumber, rtkPointNumber) ||
+                other.rtkPointNumber == rtkPointNumber) &&
             (identical(other.syncStatus, syncStatus) ||
                 other.syncStatus == syncStatus) &&
             (identical(other.createdAt, createdAt) ||
@@ -532,6 +591,9 @@ class _$VegetationRecordImpl implements _VegetationRecord {
     photoLocalPath,
     photoFilename,
     notes,
+    protocolCode,
+    subclass,
+    rtkPointNumber,
     syncStatus,
     createdAt,
     updatedAt,
@@ -560,20 +622,23 @@ abstract class _VegetationRecord implements VegetationRecord {
     final String? localId,
     final int? serverId,
     required final int outingId,
-    required final String transectId,
+    final String transectId,
     required final int plotNumber,
-    required final String habitatType,
-    required final double distanceAlongTransectM,
+    final String habitatType,
+    final double distanceAlongTransectM,
     required final double latitude,
     required final double longitude,
     final double? elevationM,
     final double? accuracyM,
-    required final double canopyHeightM,
-    required final double thatchHeightM,
+    final double canopyHeightM,
+    final double thatchHeightM,
     required final List<SpeciesObservation> speciesObservations,
     final String? photoLocalPath,
     final String? photoFilename,
     final String? notes,
+    final String? protocolCode,
+    final String? subclass,
+    final String? rtkPointNumber,
     final String syncStatus,
     final DateTime? createdAt,
     final DateTime? updatedAt,
@@ -618,6 +683,12 @@ abstract class _VegetationRecord implements VegetationRecord {
   String? get photoFilename;
   @override
   String? get notes;
+  @override
+  String? get protocolCode;
+  @override
+  String? get subclass;
+  @override
+  String? get rtkPointNumber;
   @override
   String get syncStatus;
   @override
