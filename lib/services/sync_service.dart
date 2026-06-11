@@ -154,6 +154,12 @@ class SyncService {
         }
       }
 
+      // Derive session-level protocol_code from first veg record (all plots share one protocol)
+      final sessionProtocolCode = vegRecords.isNotEmpty
+          ? (vegRecords.first['protocol_code'] as String? ?? 'MassMarshVeg')
+          : 'MassMarshVeg';
+      payload['protocol_code'] = sessionProtocolCode;
+
       payload['vegetation_records'] = vegRecords.map((veg) {
         final localId = veg['local_id'] as String? ?? '';
         return {
@@ -170,6 +176,9 @@ class SyncService {
           'species_observations': jsonDecode(veg['species_observations'] as String),
           'photo_url': photoUrls[localId],
           'notes': veg['notes'],
+          'protocol_code': veg['protocol_code'],
+          'subclass': veg['subclass'],
+          'rtk_point_number': veg['rtk_point_number'],
         };
       }).toList();
 

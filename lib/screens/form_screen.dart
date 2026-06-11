@@ -11,6 +11,7 @@ import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/species_service.dart';
+import '../services/protocol_service.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -54,9 +55,12 @@ class PlotData {
   File? photoFile;
   String? photoPath;
   List<SpeciesObservation> species;
+  String? subclass;
+  String? rtkPointNumber;
   final TextEditingController latController;
   final TextEditingController lngController;
   final TextEditingController plotIdController;
+  final TextEditingController rtkPointNumberController;
   final Map<String, TextEditingController> pinnedControllers;
   final Map<String, TextEditingController> extraControllers;
 
@@ -76,11 +80,15 @@ class PlotData {
     this.photoFile,
     this.photoPath,
     this.species = const [],
+    this.subclass,
+    this.rtkPointNumber,
+    List<String> pinnedCodes = const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
   })  : latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
         lngController = TextEditingController(text: longitude == 0 ? '' : longitude.toString()),
         plotIdController = TextEditingController(text: plotId),
+        rtkPointNumberController = TextEditingController(text: rtkPointNumber ?? ''),
         pinnedControllers = Map.fromEntries(
-          ['SPALT', 'SPPAT', 'BARE', 'DEAD'].map((code) {
+          pinnedCodes.map((code) {
             final existing = species.where((s) => s.speciesCode == code);
             final text = existing.isNotEmpty ? existing.first.percentageCover.toString() : '';
             return MapEntry(code, TextEditingController(text: text));
@@ -88,7 +96,7 @@ class PlotData {
         ),
         extraControllers = Map.fromEntries(
           species
-              .where((s) => !{'SPALT', 'SPPAT', 'BARE', 'DEAD'}.contains(s.speciesCode))
+              .where((s) => !Set.from(pinnedCodes).contains(s.speciesCode))
               .map((s) => MapEntry(
                     s.speciesCode,
                     TextEditingController(text: s.percentageCover.toString()),
@@ -99,6 +107,7 @@ class PlotData {
     latController.dispose();
     lngController.dispose();
     plotIdController.dispose();
+    rtkPointNumberController.dispose();
     for (final c in pinnedControllers.values) {
       c.dispose();
     }
@@ -156,6 +165,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // Species loaded from API/cache
   List<SpeciesItem> _allSpecies = [];
 
+  // Active protocol definition (fetched per org)
+  ProtocolDefinition? _activeProtocol;
+
   String _generatePlotId(String transectId, int plotNumber) {
     final parts = [transectId, plotNumber.toString()]
         .where((p) => p.isNotEmpty)
@@ -168,11 +180,14 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   void initState() {
     super.initState();
     _plots = [];
-    // Load species and default visibility after first frame
+    // Load species, protocol, and default visibility after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final org = ref.read(selectedOrgProvider);
       if (org != null && mounted) {
         setState(() => _visibility = org.defaultVisibility);
+        ProtocolService.instance.fetchAndCache(org.id).then((protocol) {
+          if (mounted) setState(() => _activeProtocol = protocol);
+        });
       }
       SpeciesService.instance.fetchAndCache().then((species) {
         if (mounted) setState(() => _allSpecies = species);
@@ -260,6 +275,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               notes: record['notes'] as String?,
               photoPath: record['photo_local_path'] as String?,
               species: species,
+              subclass: record['subclass'] as String?,
+              rtkPointNumber: record['rtk_point_number'] as String?,
+              pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             );
           }).toList();
           
@@ -544,6 +562,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 canopyHeight: 0,
                 thatchHeight: 0,
                 species: [],
+                pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
               ));
             });
           },
@@ -585,14 +604,15 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Plot fields
-            _buildPlotTextField(
-              index,
-              'transectId',
-              plot.transectId,
-              'Transect ID',
-              Icons.timeline,
-            ),
+            // Plot fields — conditional per protocol
+            if (!(_activeProtocol?.isFieldHidden('transect_id') ?? false))
+              _buildPlotTextField(
+                index,
+                'transectId',
+                plot.transectId,
+                'Transect ID',
+                Icons.timeline,
+              ),
             _buildPlotTextField(
               index,
               'plotId',
@@ -602,23 +622,25 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               isOptional: true,
               controller: plot.plotIdController,
             ),
-            _buildPlotTextField(
-              index,
-              'habitatType',
-              plot.habitatType,
-              'Habitat Type',
-              Icons.terrain,
-              isDropdown: true,
-              dropdownOptions: _habitatOptions,
-            ),
-            _buildPlotTextField(
-              index,
-              'distanceAlongTransect',
-              plot.distanceAlongTransect == 0 ? '' : plot.distanceAlongTransect.toString(),
-              'Distance Along Transect (m)',
-              Icons.straighten,
-              isNumber: true,
-            ),
+            if (!(_activeProtocol?.isFieldHidden('habitat_type') ?? false))
+              _buildPlotTextField(
+                index,
+                'habitatType',
+                plot.habitatType,
+                'Habitat Type',
+                Icons.terrain,
+                isDropdown: true,
+                dropdownOptions: _habitatOptions,
+              ),
+            if (!(_activeProtocol?.isFieldHidden('distance_along_transect_m') ?? false))
+              _buildPlotTextField(
+                index,
+                'distanceAlongTransect',
+                plot.distanceAlongTransect == 0 ? '' : plot.distanceAlongTransect.toString(),
+                'Distance Along Transect (m)',
+                Icons.straighten,
+                isNumber: true,
+              ),
             _buildPlotTextField(
               index,
               'latitude',
@@ -652,31 +674,70 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               ),
             ),
 
-            _buildPlotTextField(
-              index,
-              'canopyHeight',
-              plot.canopyHeight == 0 ? '' : plot.canopyHeight.toString(),
-              'Canopy Height (m)',
-              Icons.height,
-              isNumber: true,
-            ),
-            _buildPlotTextField(
-              index,
-              'thatchHeight',
-              plot.thatchHeight == 0 ? '' : plot.thatchHeight.toString(),
-              'Thatch Height (m)',
-              Icons.height,
-              isNumber: true,
-            ),
-            _buildPlotTextField(
-              index,
-              'elevation',
-              plot.elevation?.toString() ?? '',
-              'Elevation (m)',
-              Icons.landscape,
-              isNumber: true,
-              isOptional: true,
-            ),
+            if (!(_activeProtocol?.isFieldHidden('canopy_height_m') ?? false))
+              _buildPlotTextField(
+                index,
+                'canopyHeight',
+                plot.canopyHeight == 0 ? '' : plot.canopyHeight.toString(),
+                'Canopy Height (m)',
+                Icons.height,
+                isNumber: true,
+              ),
+            if (!(_activeProtocol?.isFieldHidden('thatch_height_m') ?? false))
+              _buildPlotTextField(
+                index,
+                'thatchHeight',
+                plot.thatchHeight == 0 ? '' : plot.thatchHeight.toString(),
+                'Thatch Height (m)',
+                Icons.height,
+                isNumber: true,
+              ),
+            if (!(_activeProtocol?.isFieldHidden('elevation_navd88_m') ?? false))
+              _buildPlotTextField(
+                index,
+                'elevation',
+                plot.elevation?.toString() ?? '',
+                'Elevation (m)',
+                Icons.landscape,
+                isNumber: true,
+                isOptional: true,
+              ),
+
+            // UASCommunity extra fields
+            if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextFormField(
+                  controller: plot.rtkPointNumberController,
+                  decoration: const InputDecoration(
+                    labelText: 'RTK Point #',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.pin_drop),
+                  ),
+                  onChanged: (v) => setState(() => plot.rtkPointNumber = v.isEmpty ? null : v),
+                ),
+              ),
+            if (_activeProtocol?.hasExtraField('subclass') ?? false)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: DropdownButtonFormField<String>(
+                  value: plot.subclass,
+                  decoration: const InputDecoration(
+                    labelText: 'Subclass',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.category),
+                  ),
+                  isExpanded: true,
+                  items: (_activeProtocol!.subclassOptions ?? [])
+                      .map((opt) => DropdownMenuItem(
+                            value: opt,
+                            child: Text(opt, overflow: TextOverflow.ellipsis),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setState(() => plot.subclass = v),
+                ),
+              ),
+
             _buildPlotTextField(
               index,
               'notes',
@@ -765,6 +826,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               plot: plot,
               allSpecies: _allSpecies,
               onChanged: () => setState(() {}),
+              coverIncrement: _activeProtocol?.speciesConfig.coverIncrement ?? 1,
+              pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             ),
           ],
         ),
@@ -1193,6 +1256,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       final now = DateTime.now().toIso8601String();
 
       if (widget.monitoringType == 'vegetation') {
+        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
         final childRecords = _plots.map((plot) {
           final effectivePlotId = plot.plotId.isNotEmpty
               ? plot.plotId
@@ -1215,6 +1279,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           }).toList()),
           'photo_local_path': plot.photoPath,
           'notes': plot.notes,
+          'protocol_code': protocolCode,
+          'subclass': plot.subclass,
+          'rtk_point_number': plot.rtkPointNumber,
           'sync_status': 'pending',
           'created_at': now,
           'updated_at': now,
@@ -1324,6 +1391,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       final now = DateTime.now().toIso8601String();
 
       if (widget.monitoringType == 'vegetation') {
+        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
         final childRecords = _plots.map((plot) {
           final effectivePlotId = plot.plotId.isNotEmpty
               ? plot.plotId
@@ -1346,6 +1414,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           }).toList()),
           'photo_local_path': plot.photoPath,
           'notes': plot.notes,
+          'protocol_code': protocolCode,
+          'subclass': plot.subclass,
+          'rtk_point_number': plot.rtkPointNumber,
           'sync_status': 'pending',
           'created_at': now,
           'updated_at': now,
@@ -1418,11 +1489,15 @@ class _SpeciesInput extends StatefulWidget {
   final PlotData plot;
   final List<SpeciesItem> allSpecies;
   final VoidCallback onChanged;
+  final int coverIncrement;
+  final List<String> pinnedCodes;
 
   const _SpeciesInput({
     required this.plot,
     required this.allSpecies,
     required this.onChanged,
+    this.coverIncrement = 1,
+    this.pinnedCodes = const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
   });
 
   @override
@@ -1430,7 +1505,6 @@ class _SpeciesInput extends StatefulWidget {
 }
 
 class _SpeciesInputState extends State<_SpeciesInput> {
-  static const _pinnedCodes = ['SPALT', 'SPPAT', 'BARE', 'DEAD'];
   static const _pinnedLabels = {
     'SPALT': 'Smooth Cordgrass',
     'SPPAT': 'Salt Meadow Cordgrass',
@@ -1454,7 +1528,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final addedCodes = widget.plot.species.map((s) => s.speciesCode).toSet();
 
     return widget.allSpecies.where((s) {
-      if (_pinnedCodes.contains(s.code)) return false;
+      if (widget.pinnedCodes.contains(s.code)) return false;
       if (addedCodes.contains(s.code)) return false;
       final haystack = '${s.label.toLowerCase()} ${s.scientificName.toLowerCase()}';
       return s.code.toLowerCase().contains(q) || haystack.contains(q);
@@ -1540,12 +1614,53 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final theme = Theme.of(context);
     final plot = widget.plot;
     final extraSpecies = plot.species
-        .where((s) => !_pinnedCodes.contains(s.speciesCode))
+        .where((s) => !widget.pinnedCodes.contains(s.speciesCode))
         .toList();
     final filtered = _filteredSpecies();
 
     // Build a lookup map for extra species scientific names
     final speciesMap = {for (final s in widget.allSpecies) s.code: s};
+
+    // Helper: builds a cover input — TextField for increment=1, ChoiceChips otherwise
+    Widget buildCoverInput({
+      required String code,
+      required TextEditingController? controller,
+      required int currentValue,
+      required void Function(String) onChanged,
+    }) {
+      if (widget.coverIncrement == 1) {
+        return SizedBox(
+          width: 64,
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            textAlign: TextAlign.center,
+            decoration: const InputDecoration(
+              suffixText: '%',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              isDense: true,
+            ),
+            onChanged: onChanged,
+          ),
+        );
+      }
+      return Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: List.generate(11, (i) {
+          final v = i * 10;
+          return ChoiceChip(
+            label: Text('$v', style: const TextStyle(fontSize: 11)),
+            selected: currentValue == v,
+            onSelected: (_) => onChanged(v.toString()),
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+          );
+        }),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1558,32 +1673,45 @@ class _SpeciesInputState extends State<_SpeciesInput> {
         const SizedBox(height: 12),
 
         // Pinned species rows (always shown in fixed order)
-        ..._pinnedCodes.map((code) {
-          final commonLabel = _pinnedLabels[code] ?? code;
+        ...widget.pinnedCodes.map((code) {
+          final commonLabel = speciesMap[code]?.label ?? _pinnedLabels[code] ?? code;
           final scientificName = speciesMap[code]?.scientificName ?? '';
-          final controller = plot.pinnedControllers[code]!;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: _speciesLabel(context, code, '$code \u2013 $commonLabel', scientificName),
-                ),
-                SizedBox(
-                  width: 64,
-                  child: TextField(
+          final controller = plot.pinnedControllers[code];
+          final currentValue = plot.species
+              .firstWhere((s) => s.speciesCode == code,
+                  orElse: () => SpeciesObservation(speciesCode: code, percentageCover: 0))
+              .percentageCover;
+          if (widget.coverIncrement == 1) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: _speciesLabel(context, code, '$code \u2013 $commonLabel', scientificName),
+                  ),
+                  buildCoverInput(
+                    code: code,
                     controller: controller,
-                    keyboardType: TextInputType.number,
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      suffixText: '%',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                      isDense: true,
-                    ),
+                    currentValue: currentValue,
                     onChanged: (v) => _updatePinned(code, v),
                   ),
+                ],
+              ),
+            );
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _speciesLabel(context, code, '$code \u2013 $commonLabel', scientificName),
+                const SizedBox(height: 4),
+                buildCoverInput(
+                  code: code,
+                  controller: controller,
+                  currentValue: currentValue,
+                  onChanged: (v) => _updatePinned(code, v),
                 ),
               ],
             ),
@@ -1600,31 +1728,49 @@ class _SpeciesInputState extends State<_SpeciesInput> {
             final scientificName = item?.scientificName ?? '';
             final controller = plot.extraControllers[code] ??
                 TextEditingController(text: obs.percentageCover.toString());
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(child: _speciesLabel(context, code, commonLabel, scientificName)),
-                  SizedBox(
-                    width: 64,
-                    child: TextField(
+            if (widget.coverIncrement == 1) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(child: _speciesLabel(context, code, commonLabel, scientificName)),
+                    buildCoverInput(
+                      code: code,
                       controller: controller,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      decoration: const InputDecoration(
-                        suffixText: '%',
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                        isDense: true,
-                      ),
+                      currentValue: obs.percentageCover,
                       onChanged: (v) => _updateExtra(code, v),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                      padding: EdgeInsets.zero,
+                      onPressed: () => _removeExtra(code),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: _speciesLabel(context, code, commonLabel, scientificName)),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18, color: Colors.red),
+                        padding: EdgeInsets.zero,
+                        onPressed: () => _removeExtra(code),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                    padding: EdgeInsets.zero,
-                    onPressed: () => _removeExtra(code),
+                  const SizedBox(height: 4),
+                  buildCoverInput(
+                    code: code,
+                    controller: controller,
+                    currentValue: obs.percentageCover,
+                    onChanged: (v) => _updateExtra(code, v),
                   ),
                 ],
               ),
