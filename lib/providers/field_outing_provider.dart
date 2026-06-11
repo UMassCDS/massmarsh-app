@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite/sqflite.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
+import '../providers/auth_provider.dart';
 import '../services/sync_service.dart';
 
 // Provide access to the database
@@ -57,8 +59,28 @@ class FieldOutingService {
 
   FieldOutingService(this.ref);
 
+  /// Ensures the currently logged-in user exists in the local users table so
+  /// that the created_by_user_id FK on field_outings is satisfied.
+  Future<void> _upsertCurrentUser(Database database) async {
+    final user = ref.read(authProvider).user;
+    if (user == null) return;
+    await database.insert(
+      'users',
+      {
+        'id': user.id,
+        'email': user.email,
+        'full_name': user.fullName,
+        'is_active': user.isActive ? 1 : 0,
+        'is_superadmin': user.isSuperadmin ? 1 : 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   Future<String> saveFieldOuting(FieldOuting session) async {
     final db = await ref.read(appDatabaseProvider.future);
+    final database = await db.database;
+    await _upsertCurrentUser(database);
     final localId = await db.fieldOutingDao.createFieldOuting(session);
 
     // Trigger a refresh
@@ -66,7 +88,6 @@ class FieldOutingService {
 
     // Trigger background sync (don't await - let it happen in background)
     // Get the database ID for the just-created session
-    final database = await db.database;
     final result = await database.query(
       'field_outings',
       columns: ['id'],
@@ -96,10 +117,10 @@ class FieldOutingService {
     String childTable,
   ) async {
     final db = await ref.read(appDatabaseProvider.future);
+    final database = await db.database;
+    await _upsertCurrentUser(database);
     final localId = await db.fieldOutingDao.createFieldOuting(session);
     _refreshNotifier.increment();
-
-    final database = await db.database;
     final result = await database.query(
       'field_outings',
       columns: ['id'],
