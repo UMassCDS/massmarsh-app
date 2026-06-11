@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import '../models/user/user.dart';
 
-const kApiBaseUrl = 'https://massmarsh.azurewebsites.net';
+const kApiBaseUrl = 'https://saltmarshdata.org';
 
 class AuthService {
   final Dio _dio;
@@ -10,8 +10,8 @@ class AuthService {
       : _dio = Dio(
           BaseOptions(
             baseUrl: kApiBaseUrl,
-            connectTimeout: const Duration(seconds: 10),
-            receiveTimeout: const Duration(seconds: 10),
+            connectTimeout: const Duration(seconds: 30),
+            receiveTimeout: const Duration(seconds: 30),
             headers: {'Content-Type': 'application/json'},
           ),
         );

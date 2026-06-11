@@ -93,7 +93,9 @@ class AuthNotifier extends Notifier<AuthState> {
     } on DioException catch (e) {
       final message = e.response?.statusCode == 401
           ? 'Invalid email or password.'
-          : 'Could not connect to server. Please try again.';
+          : e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout
+              ? 'Server is taking too long to respond. Please try again.'
+              : 'Could not connect to server. Please try again.';
       state = state.copyWith(isLoading: false, error: message);
     } catch (_) {
       state = state.copyWith(
