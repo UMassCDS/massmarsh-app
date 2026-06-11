@@ -20,8 +20,8 @@ class DatabaseExportHelper {
       // Share the file
       await Share.shareXFiles(
         [XFile(exportedFile.path)],
-        subject: 'MassMarsh Database Export',
-        text: 'MassMarsh field data export from ${DateTime.now().toIso8601String()}',
+        subject: 'Salt Marsh Data Database Export',
+        text: 'Salt Marsh Data field data export from ${DateTime.now().toIso8601String()}',
       );
     } catch (e) {
       throw Exception('Failed to export database: $e');
@@ -42,7 +42,7 @@ class DatabaseExportHelper {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['db'],
-        dialogTitle: 'Select MassMarsh Database File',
+        dialogTitle: 'Select Salt Marsh Data Database File',
       );
 
       if (result != null && result.files.single.path != null) {

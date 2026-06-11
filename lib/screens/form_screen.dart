@@ -119,6 +119,7 @@ class PlotData {
 
 class _FormScreenState extends ConsumerState<FormScreen> {
   late final _formKey = GlobalKey<FormState>();
+  final _scrollController = ScrollController();
   late final _siteNameController = TextEditingController();
   late final _otherMembersController = TextEditingController();
   late final _startTimeController = TextEditingController();
@@ -389,6 +390,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     _longitudeController.dispose();
     _elevationNavd88Controller.dispose();
     _featureTypeController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -470,6 +472,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         title: Text(title),
       ),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
@@ -1355,6 +1358,28 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
   Future<void> _saveFieldOuting(BuildContext context, WidgetRef ref) async {
     if (!_formKey.currentState!.validate()) {
+      // Scroll to the top so the user can see the highlighted required fields.
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text('Please fill in all required fields before saving.'),
+              ),
+            ],
+          ),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
       return;
     }
 

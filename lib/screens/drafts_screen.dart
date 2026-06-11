@@ -25,166 +25,31 @@ class DraftsScreen extends ConsumerWidget {
           }
 
           if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text('Error loading drafts: ${snapshot.error}'),
-                ],
-              ),
-            );
+            return _ErrorState(error: snapshot.error.toString());
           }
 
           final drafts = snapshot.data ?? [];
 
           if (drafts.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.drafts_outlined,
-                    size: 80,
-                    color: Colors.grey[400],
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No drafts saved',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          color: Colors.grey[600],
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Start a field session and save as draft',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            );
+            return const _EmptyState();
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             itemCount: drafts.length,
             itemBuilder: (context, index) {
               final draft = drafts[index];
-              return _buildDraftCard(context, ref, draft);
+              return _DraftCard(
+                draft: draft,
+                onOpen: () => _openDraft(context, draft),
+                onDelete: () => _deleteDraft(context, ref, draft),
+                authorName: ref.watch(authProvider).user?.fullName ?? 'Unknown',
+              );
             },
           );
         },
       ),
     );
-  }
-
-  Widget _buildDraftCard(BuildContext context, WidgetRef ref, FieldOuting draft) {
-    final monitoringTypeIcon = _getMonitoringIcon(draft.monitoringType);
-    final formattedDate = _formatDate(draft.createdAt);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _openDraft(context, draft),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(monitoringTypeIcon, color: Colors.blue),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          draft.siteName,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _formatMonitoringType(draft.monitoringType),
-                          style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _deleteDraft(context, ref, draft),
-                    tooltip: 'Delete draft',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(Icons.person_outline, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(
-                    ref.watch(authProvider).user?.fullName ?? 'Unknown',
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                  const SizedBox(width: 16),
-                  Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
-                  const SizedBox(width: 4),
-                  Text(
-                    formattedDate,
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _getMonitoringIcon(String monitoringType) {
-    switch (monitoringType) {
-      case 'vegetation':
-        return Icons.grass;
-      case 'hydrology':
-        return Icons.water_drop;
-      case 'elevation':
-        return Icons.terrain;
-      default:
-        return Icons.description;
-    }
-  }
-
-  String _formatMonitoringType(String type) {
-    return '${type[0].toUpperCase()}${type.substring(1)} Monitoring';
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'Unknown date';
-    final now = DateTime.now();
-    final diff = now.difference(date);
-
-    if (diff.inDays == 0) {
-      if (diff.inHours == 0) {
-        return '${diff.inMinutes} min ago';
-      }
-      return '${diff.inHours}h ago';
-    } else if (diff.inDays == 1) {
-      return 'Yesterday';
-    } else if (diff.inDays < 7) {
-      return '${diff.inDays} days ago';
-    } else {
-      return '${date.month}/${date.day}/${date.year}';
-    }
   }
 
   void _openDraft(BuildContext context, FieldOuting draft) {
@@ -198,12 +63,14 @@ class DraftsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _deleteDraft(BuildContext context, WidgetRef ref, FieldOuting draft) async {
+  Future<void> _deleteDraft(
+      BuildContext context, WidgetRef ref, FieldOuting draft) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Draft'),
-        content: Text('Are you sure you want to delete the draft for "${draft.siteName}"?'),
+        content:
+            Text('Delete the draft for "${draft.siteName}"? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -211,9 +78,7 @@ class DraftsScreen extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Delete'),
           ),
         ],
@@ -224,7 +89,6 @@ class DraftsScreen extends ConsumerWidget {
       try {
         final service = ref.read(fieldOutingServiceProvider);
         await service.deleteDraft(draft.id!);
-        
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -232,7 +96,6 @@ class DraftsScreen extends ConsumerWidget {
               backgroundColor: Colors.green,
             ),
           );
-          // Refresh the screen
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const DraftsScreen()),
           );
@@ -248,5 +111,224 @@ class DraftsScreen extends ConsumerWidget {
         }
       }
     }
+  }
+}
+
+// ── Supporting widgets ──────────────────────────────────────────────────────
+
+class _DraftCard extends StatelessWidget {
+  final FieldOuting draft;
+  final VoidCallback onOpen;
+  final VoidCallback onDelete;
+  final String authorName;
+
+  const _DraftCard({
+    required this.draft,
+    required this.onOpen,
+    required this.onDelete,
+    required this.authorName,
+  });
+
+  static const _typeColors = {
+    'vegetation': Color(0xFF2E7D32),
+    'hydrology': Color(0xFF0277BD),
+    'elevation': Color(0xFF6A3F00),
+  };
+
+  static const _typeIcons = {
+    'vegetation': Icons.grass,
+    'hydrology': Icons.water_drop,
+    'elevation': Icons.terrain,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final accent = _typeColors[draft.monitoringType] ?? colorScheme.primary;
+    final icon = _typeIcons[draft.monitoringType] ?? Icons.description;
+    final typeLabel =
+        '${draft.monitoringType[0].toUpperCase()}${draft.monitoringType.substring(1)} Monitoring';
+    final dateLabel = _formatDate(draft.createdAt);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(16),
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              // Coloured left accent bar
+              Container(
+                width: 5,
+                decoration: BoxDecoration(
+                  color: accent,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 8, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                            child: Icon(icon, color: accent, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              draft.siteName,
+                              style: textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.delete_outline,
+                                color: colorScheme.error, size: 20),
+                            onPressed: onDelete,
+                            tooltip: 'Delete draft',
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _MetaChip(label: typeLabel, color: accent),
+                          const SizedBox(width: 8),
+                          Icon(Icons.access_time,
+                              size: 13,
+                              color: colorScheme.onSurface.withValues(alpha: 0.45)),
+                          const SizedBox(width: 3),
+                          Text(dateLabel,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurface.withValues(alpha: 0.55),
+                              )),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Unknown date';
+    final now = DateTime.now();
+    final diff = now.difference(date);
+    if (diff.inDays == 0) {
+      if (diff.inHours == 0) return '${diff.inMinutes} min ago';
+      return '${diff.inHours}h ago';
+    } else if (diff.inDays == 1) {
+      return 'Yesterday';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays} days ago';
+    } else {
+      return '${date.month}/${date.day}/${date.year}';
+    }
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _MetaChip({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.drafts_outlined,
+                size: 64,
+                color: colorScheme.onSurface.withValues(alpha: 0.25)),
+            const SizedBox(height: 20),
+            Text('No saved drafts',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.5),
+                    )),
+            const SizedBox(height: 6),
+            Text(
+              'Start a field session and tap "Save as Draft" to keep your progress.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurface.withValues(alpha: 0.45),
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String error;
+  const _ErrorState({required this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 56, color: Colors.red),
+            const SizedBox(height: 16),
+            Text('Error loading drafts',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(error,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
   }
 }

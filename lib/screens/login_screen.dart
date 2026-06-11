@@ -76,7 +76,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'MassMarsh',
+                    'Salt Marsh Data',
                     style: textTheme.headlineMedium?.copyWith(
                       color: colorScheme.onPrimary,
                       fontWeight: FontWeight.bold,
@@ -85,7 +85,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Salt Marsh Monitoring',
+                    'Salt Marsh Data Collection',
                     style: textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onPrimary.withValues(alpha: 0.8),
                     ),

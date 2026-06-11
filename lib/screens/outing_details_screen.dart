@@ -12,7 +12,8 @@ class OutingDetailsScreen extends ConsumerStatefulWidget {
   const OutingDetailsScreen({required this.outing, super.key});
 
   @override
-  ConsumerState<OutingDetailsScreen> createState() => _OutingDetailsScreenState();
+  ConsumerState<OutingDetailsScreen> createState() =>
+      _OutingDetailsScreenState();
 }
 
 class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
@@ -46,160 +47,389 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
         return;
     }
 
-    final records = await db.query(table, where: 'outing_id = ?', whereArgs: [id]);
+    final records =
+        await db.query(table, where: 'outing_id = ?', whereArgs: [id]);
     setState(() {
       _childRecords = records;
       _loading = false;
     });
   }
 
+  static const _typeColors = {
+    'vegetation': Color(0xFF2E7D32),
+    'hydrology': Color(0xFF0277BD),
+    'elevation': Color(0xFF6A3F00),
+  };
+
   @override
   Widget build(BuildContext context) {
     final session = widget.outing;
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final accent =
+        _typeColors[session.monitoringType] ?? colorScheme.primary;
+    final isDraft = session.isDraft;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(session.siteName),
-      ),
+      appBar: AppBar(title: Text(session.siteName)),
       body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Status + type banner ──────────────────────────────────
+            Row(
+              children: [
+                _TypeBadge(
+                    type: session.monitoringType, accent: accent),
+                const SizedBox(width: 8),
+                _StatusBadge(isDraft: isDraft),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Session info card ─────────────────────────────────────
+            _SectionCard(
+              title: 'Session Info',
+              children: [
+                _InfoRow(
+                    icon: Icons.person_outline,
+                    label: 'Observer',
+                    value: ref.watch(authProvider).user?.fullName ?? 'Unknown'),
+                if (session.otherMembers != null &&
+                    session.otherMembers!.isNotEmpty)
+                  _InfoRow(
+                      icon: Icons.group_outlined,
+                      label: 'Other Members',
+                      value: session.otherMembers!),
+                if (session.startTime != null)
+                  _InfoRow(
+                      icon: Icons.schedule,
+                      label: 'Start',
+                      value: session.startTime!
+                          .toString()
+                          .split('.')
+                          .first),
+                if (session.endTime != null)
+                  _InfoRow(
+                      icon: Icons.timer_outlined,
+                      label: 'End',
+                      value: session.endTime!
+                          .toString()
+                          .split('.')
+                          .first),
+                if (session.createdAt != null)
+                  _InfoRow(
+                      icon: Icons.calendar_today_outlined,
+                      label: 'Created',
+                      value: session.createdAt!
+                          .toString()
+                          .split('.')
+                          .first),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Records ───────────────────────────────────────────────
+            Row(
+              children: [
+                Text('Records',
+                    style: textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${_childRecords.length}',
+                    style: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            if (_loading)
+              const Center(
+                  child: Padding(
+                      padding: EdgeInsets.all(32),
+                      child: CircularProgressIndicator()))
+            else if (_childRecords.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text('No records found.',
+                    style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.5))),
+              )
+            else
+              ..._childRecords.asMap().entries.map(
+                    (entry) => _RecordCard(
+                      index: entry.key + 1,
+                      record: entry.value,
+                    ),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sub-widgets ─────────────────────────────────────────────────────────────
+
+class _TypeBadge extends StatelessWidget {
+  final String type;
+  final Color accent;
+  const _TypeBadge({required this.type, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = '${type[0].toUpperCase()}${type.substring(1)}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w700,
+              )),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  final bool isDraft;
+  const _StatusBadge({required this.isDraft});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDraft ? Colors.orange.shade700 : Colors.green.shade700;
+    final bg = isDraft
+        ? Colors.orange.withValues(alpha: 0.1)
+        : Colors.green.withValues(alpha: 0.1);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(isDraft ? 'Draft' : 'Submitted',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              )),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _SectionCard({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _sectionHeader('Session Info'),
-            _infoRow('Observer', ref.watch(authProvider).user?.fullName ?? 'Unknown'),
-            if (session.otherMembers != null && session.otherMembers!.isNotEmpty)
-              _infoRow('Other Members', session.otherMembers!),
-            _infoRow('Monitoring Type', session.monitoringType),
-            _infoRow('Status', session.isDraft ? 'Draft' : 'Submitted'),
-            if (session.startTime != null)
-              _infoRow('Start', session.startTime!.toString().split('.')[0]),
-            if (session.endTime != null)
-              _infoRow('End', session.endTime!.toString().split('.')[0]),
-            if (session.createdAt != null)
-              _infoRow('Created', session.createdAt!.toString().split('.')[0]),
-            const SizedBox(height: 24),
-            _sectionHeader('Records (${_childRecords.length})'),
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else if (_childRecords.isEmpty)
-              const Text('No records found.', style: TextStyle(color: Colors.grey))
-            else
-              ..._childRecords.asMap().entries.map((entry) =>
-                _buildRecordCard(entry.key + 1, entry.value)),
+            Text(title,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            ...children,
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _sectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-    );
-  }
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _InfoRow(
+      {required this.icon, required this.label, required this.value});
 
-  Widget _infoRow(String label, String value) {
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icon, size: 16, color: colorScheme.onSurface.withValues(alpha: 0.45)),
+          const SizedBox(width: 10),
           SizedBox(
-            width: 130,
-            child: Text('$label:', style: const TextStyle(color: Colors.grey)),
+            width: 110,
+            child: Text(label,
+                style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurface.withValues(alpha: 0.55))),
           ),
-          Expanded(child: Text(value)),
+          Expanded(
+            child: Text(value,
+                style:
+                    textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildRecordCard(int index, Map<String, dynamic> record) {
+class _RecordCard extends StatelessWidget {
+  final int index;
+  final Map<String, dynamic> record;
+  const _RecordCard({required this.index, required this.record});
+
+  static const _skip = {
+    'id',
+    'local_id',
+    'server_id',
+    'outing_id',
+    'sync_status',
+    'created_at',
+    'updated_at',
+    'photo_filename',
+    'photo_local_path',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    final photoUrl = record['photo_filename'] as String?;
+    final photoLocalPath = record['photo_local_path'] as String?;
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Record #$index', style: const TextStyle(fontWeight: FontWeight.bold)),
+            // Header row
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: Text(
+                    'Record #$index',
+                    style: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            // Photo
+            if (photoUrl != null && photoUrl.startsWith('http')) ...[
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Image.network(
+                  photoUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (_, child, progress) =>
+                      progress == null
+                          ? child
+                          : const Center(
+                              child: Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: CircularProgressIndicator())),
+                  errorBuilder: (_, _, _) => Text('Failed to load photo',
+                      style: TextStyle(color: colorScheme.error)),
+                ),
+              ),
+            ] else if (photoLocalPath != null &&
+                photoLocalPath.isNotEmpty) ...[
+              Builder(builder: (context) {
+                final file = File(photoLocalPath);
+                if (!file.existsSync()) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.file(file, fit: BoxFit.cover),
+                  ),
+                );
+              }),
+            ],
+
+            const SizedBox(height: 10),
+            const Divider(height: 1),
             const SizedBox(height: 8),
-            ..._buildRecordRows(record),
+
+            // Field rows
+            ...record.entries
+                .where((e) => !_skip.contains(e.key) && e.value != null)
+                .map((e) {
+              String displayValue;
+              if (e.key == 'species_observations') {
+                try {
+                  final List decoded = jsonDecode(e.value as String);
+                  displayValue = decoded
+                      .map((s) =>
+                          '${s['species_code']}: ${s['percentage_cover']}%')
+                      .join(', ');
+                } catch (_) {
+                  displayValue = e.value.toString();
+                }
+              } else {
+                displayValue = e.value.toString();
+              }
+              final label = e.key
+                  .replaceAll('_', ' ')
+                  .split(' ')
+                  .map((w) =>
+                      w.isNotEmpty ? '${w[0].toUpperCase()}${w.substring(1)}' : w)
+                  .join(' ');
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 130,
+                      child: Text('$label:',
+                          style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurface
+                                  .withValues(alpha: 0.55))),
+                    ),
+                    Expanded(
+                        child: Text(displayValue,
+                            style: textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w500))),
+                  ],
+                ),
+              );
+            }),
           ],
         ),
       ),
     );
-  }
-
-  List<Widget> _buildRecordRows(Map<String, dynamic> record) {
-    final skip = {'id', 'local_id', 'server_id', 'outing_id', 'sync_status', 'created_at', 'updated_at'};
-    final rows = <Widget>[];
-
-    // Show photo first if available
-    final photoUrl = record['photo_filename'] as String?;
-    print('DEBUG photo_filename: $photoUrl');
-
-    final photoLocalPath = record['photo_local_path'] as String?;
-
-    if (photoUrl != null && photoUrl.startsWith('http')) {
-      rows.add(const Padding(
-        padding: EdgeInsets.only(bottom: 4),
-        child: Text('Photo:', style: TextStyle(color: Colors.grey)),
-      ));
-      rows.add(Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Image.network(
-            photoUrl,
-            fit: BoxFit.cover,
-            loadingBuilder: (_, child, progress) =>
-              progress == null ? child : const Center(child: CircularProgressIndicator()),
-            errorBuilder: (_, __, _) =>
-              const Text('Failed to load photo', style: TextStyle(color: Colors.red)),
-          ),
-        ),
-      ));
-    } else if (photoLocalPath != null && photoLocalPath.isNotEmpty) {
-      final file = File(photoLocalPath);
-      if (file.existsSync()) {
-        rows.add(const Padding(
-          padding: EdgeInsets.only(bottom: 4),
-          child: Text('Photo (local):', style: TextStyle(color: Colors.grey)),
-        ));
-        rows.add(Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: Image.file(file, fit: BoxFit.cover),
-          ),
-        ));
-      }
-    }
-
-    for (final entry in record.entries) {
-      if (skip.contains(entry.key) || entry.value == null) continue;
-      if (entry.key == 'photo_filename' || entry.key == 'photo_local_path') continue;
-
-      String displayValue;
-      if (entry.key == 'species_observations') {
-        try {
-          final List decoded = jsonDecode(entry.value as String);
-          displayValue = decoded.map((s) =>
-            '${s['species_code']}: ${s['percentage_cover']}%'
-          ).join(', ');
-        } catch (_) {
-          displayValue = entry.value.toString();
-        }
-      } else {
-        displayValue = entry.value.toString();
-      }
-
-      final label = entry.key.replaceAll('_', ' ');
-      rows.add(_infoRow(label, displayValue));
-    }
-    return rows;
   }
 }

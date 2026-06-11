@@ -48,7 +48,7 @@ ThemeData _buildTheme(Brightness brightness) {
           color: colorScheme.outlineVariant.withValues(alpha: 0.6),
         ),
       ),
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: Clip.hardEdge,
       color: colorScheme.surface,
     ),
 
@@ -137,7 +137,7 @@ class MassMarshApp extends ConsumerWidget {
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
-      title: 'MassMarsh',
+      title: 'Salt Marsh Data',
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: themeMode,

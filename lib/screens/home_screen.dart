@@ -4,7 +4,6 @@ import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/protocol_service.dart';
 import '../services/species_service.dart';
-import '../test_sync_helper.dart';
 import 'login_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -32,12 +31,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final orgName = ref.watch(selectedOrgProvider)?.name ?? '';
+    // Cache the blended banner end-colour so it isn't recomputed on every
+    // scroll frame (Color.lerp allocates a new object each call).
+    final bannerEnd =
+        Color.lerp(colorScheme.primaryContainer, colorScheme.secondaryContainer, 0.5)!;
 
     return Scaffold(
       appBar: AppBar(
         title: Column(
           children: [
-            const Text('MassMarsh'),
+            const Text('Salt Marsh Data'),
             GestureDetector(
               onTap: () {
                 ref.read(selectedOrgProvider.notifier).clear();
@@ -102,26 +105,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Creating test data and syncing...')),
-          );
-          final orgId = ref.read(selectedOrgIdProvider);
-          await TestSyncHelper.createAndSyncTestOuting(orgId: orgId);
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('✅ Test sync complete! Check console.'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        },
-        label: const Text('TEST SYNC'),
-        icon: const Icon(Icons.cloud_upload),
-        backgroundColor: Colors.orange,
-      ),
       body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -135,8 +118,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   end: Alignment.bottomRight,
                   colors: [
                     colorScheme.primaryContainer,
-                    Color.lerp(
-                        colorScheme.primaryContainer, colorScheme.secondaryContainer, 0.5)!,
+                    bannerEnd,
                   ],
                 ),
               ),
