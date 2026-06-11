@@ -81,6 +81,15 @@ dev_dependencies:
   # Code quality
   flutter_lints: ^6.0.0
 
+  # App icon generation
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/icon.png"
+
 flutter:
   uses-material-design: true
 
