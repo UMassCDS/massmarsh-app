@@ -1,16 +1,3 @@
-# mass_marsh_app
+# Salt Marsh Data
 
-A new Flutter project.
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+A Flutter mobile app for offline salt marsh field data collection. Supports form-based data entry, GPS logging, and background sync to the Salt Marsh Data Portal when connectivity is available.

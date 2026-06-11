@@ -1,5 +1,5 @@
 name: mass_marsh_app
-description: "MassMarsh Flutter app for offline marsh monitoring data collection."
+description: "Salt Marsh Data - mobile app for salt marsh field data collection and sync."
 publish_to: 'none'
 
 version: 1.0.0+1
