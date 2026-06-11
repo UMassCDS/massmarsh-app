@@ -11,6 +11,121 @@ import 'screens/drafts_screen.dart';
 import 'screens/org_selection_screen.dart';
 import 'screens/settings_screen.dart';
 
+/// Seed colour — a rich marsh-green used to generate the full M3 palette.
+const _kSeedColor = Color(0xFF1B6B3A);
+
+ThemeData _buildTheme(Brightness brightness) {
+  final colorScheme = ColorScheme.fromSeed(
+    seedColor: _kSeedColor,
+    brightness: brightness,
+  );
+
+  return ThemeData(
+    colorScheme: colorScheme,
+    useMaterial3: true,
+
+    // AppBar — flush with the surface, no elevation line while scrolling
+    appBarTheme: AppBarTheme(
+      centerTitle: true,
+      elevation: 0,
+      scrolledUnderElevation: 2,
+      backgroundColor: colorScheme.surface,
+      foregroundColor: colorScheme.onSurface,
+      titleTextStyle: TextStyle(
+        color: colorScheme.onSurface,
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -0.3,
+      ),
+    ),
+
+    // Cards — outlined, no shadow (cleaner look)
+    cardTheme: CardThemeData(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      clipBehavior: Clip.antiAlias,
+      color: colorScheme.surface,
+    ),
+
+    // Input fields — filled style, rounded corners
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.outline),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.primary, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.error),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: colorScheme.error, width: 2),
+      ),
+    ),
+
+    // Filled buttons
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+    ),
+
+    // Elevated buttons
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+    ),
+
+    // Text buttons
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+
+    // Chips (used for status badges)
+    chipTheme: ChipThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      side: BorderSide.none,
+    ),
+
+    // Dividers
+    dividerTheme: DividerThemeData(
+      space: 1,
+      thickness: 1,
+      color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+    ),
+
+    // List tiles
+    listTileTheme: ListTileThemeData(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+    ),
+  );
+}
+
 /// Main app widget
 class MassMarshApp extends ConsumerWidget {
   const MassMarshApp({super.key});
@@ -23,22 +138,10 @@ class MassMarshApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'MassMarsh',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          centerTitle: true,
-          elevation: 2,
-        ),
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-      ),
+      theme: _buildTheme(Brightness.light),
+      darkTheme: _buildTheme(Brightness.dark),
       themeMode: themeMode,
+      debugShowCheckedModeBanner: false,
       home: _resolveHome(auth, selectedOrg),
       onGenerateRoute: (settings) {
         if (settings.name == '/home') {
