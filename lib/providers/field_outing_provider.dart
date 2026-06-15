@@ -96,7 +96,7 @@ class FieldOutingService {
       limit: 1,
     );
 
-    if (result.isNotEmpty) {
+    if (result.isNotEmpty && !session.isDraft) {
       final dbId = result.first['id'] as int;
       SyncService.instance.uploadFieldOuting(dbId).then((serverId) {
         if (serverId != null) {
@@ -139,11 +139,13 @@ class FieldOutingService {
         });
       }
 
-      SyncService.instance.uploadFieldOuting(dbId).then((serverId) {
-        if (serverId != null) {
-          _refreshNotifier.increment();
-        }
-      }).catchError((_) {});
+      if (!session.isDraft) {
+        SyncService.instance.uploadFieldOuting(dbId).then((serverId) {
+          if (serverId != null) {
+            _refreshNotifier.increment();
+          }
+        }).catchError((_) {});
+      }
     }
 
     return localId;

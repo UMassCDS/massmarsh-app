@@ -176,6 +176,75 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     return parts;
   }
 
+  bool _hasAnyContent() {
+    if (widget.draftId != null) return true;
+    if (_siteNameController.text.isNotEmpty) return true;
+    if (_otherMembersController.text.isNotEmpty) return true;
+    if (_startTimeController.text.isNotEmpty) return true;
+    if (widget.monitoringType == 'vegetation') {
+      for (final plot in _plots) {
+        if (plot.transectId.isNotEmpty) return true;
+        if (plot.species.isNotEmpty) return true;
+        if (plot.notes?.isNotEmpty == true) return true;
+      }
+    } else if (widget.monitoringType == 'hydrology') {
+      if (_areaTreatmentController.text.isNotEmpty) return true;
+      if (_serialNumberController.text.isNotEmpty) return true;
+      if (_waypointNumberController.text.isNotEmpty) return true;
+      if (_rtkElevationController.text.isNotEmpty) return true;
+      if (_waterAboveBelowController.text.isNotEmpty) return true;
+      if (_wellRimToWaterController.text.isNotEmpty) return true;
+      if (_wellRimToMarshController.text.isNotEmpty) return true;
+    } else if (widget.monitoringType == 'elevation') {
+      if (_transectIdController.text.isNotEmpty) return true;
+      if (_pointNumberController.text.isNotEmpty) return true;
+      if (_latitudeController.text.isNotEmpty) return true;
+      if (_longitudeController.text.isNotEmpty) return true;
+      if (_elevationNavd88Controller.text.isNotEmpty) return true;
+      if (_featureTypeController.text.isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  Future<void> _onBackPressed() async {
+    if (!_hasAnyContent()) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Unsaved changes'),
+        content: const Text(
+            'You have unsaved changes. What would you like to do?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('keep'),
+            child: const Text('Keep editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('discard'),
+            child: const Text('Discard'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop('save'),
+            child: const Text('Save draft'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (result == 'save') {
+      await _saveDraft(context, ref);
+    } else if (result == 'discard') {
+      Navigator.of(context).pop();
+    }
+    // 'keep' or null (tapped outside) → stay on form
+  }
+
+
 
   @override
   void initState() {
@@ -467,7 +536,12 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
     final title = titleMap[widget.monitoringType] ?? 'Field Session Form';
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBackPressed();
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(title),
       ),
@@ -527,6 +601,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -1338,8 +1413,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           ),
         );
 
-        // Navigate back to home after a short delay
-        await Future.delayed(const Duration(seconds: 2));
+        // Navigate back after snackbar appears
+        await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -1494,8 +1569,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           ),
         );
 
-        // Navigate back to home after a short delay
-        await Future.delayed(const Duration(seconds: 2));
+        // Navigate back after snackbar appears
+        await Future.delayed(const Duration(milliseconds: 500));
         if (mounted) {
           Navigator.of(context).pop();
         }
