@@ -25,9 +25,21 @@ class SpeciesService {
 
   final _logger = Logger();
 
+  static const _ttl = Duration(hours: 1);
+  List<SpeciesItem>? _memCache;
+  DateTime? _lastFetched;
+
   /// Fetch species from API and cache in SQLite species_lookup table.
-  /// Returns cached list on failure / offline.
+  /// Returns in-memory cache if fetched within the last 24 hours.
+  /// Falls back to SQLite cache on failure / offline.
   Future<List<SpeciesItem>> fetchAndCache() async {
+    // Return in-memory cache if still fresh
+    if (_memCache != null &&
+        _lastFetched != null &&
+        DateTime.now().difference(_lastFetched!) < _ttl) {
+      return _memCache!;
+    }
+
     // Try network first
     if (await SyncService.instance.hasConnectivity()) {
       try {
@@ -45,7 +57,10 @@ class SpeciesService {
       }
     }
 
-    return _loadFromCache();
+    final species = await _loadFromCache();
+    _memCache = species;
+    _lastFetched = DateTime.now();
+    return species;
   }
 
   Future<void> _cacheSpecies(List<dynamic> raw) async {
