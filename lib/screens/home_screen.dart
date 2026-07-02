@@ -227,7 +227,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onTap: () => Navigator.of(context).pushNamed('/settings'),
                   ),
 
-                  const SizedBox(height: 88), // space above FAB
+                  SizedBox(height: 88 + MediaQuery.paddingOf(context).bottom),
                 ],
               ),
             ),

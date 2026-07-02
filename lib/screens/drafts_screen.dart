@@ -35,7 +35,7 @@ class DraftsScreen extends ConsumerWidget {
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
             itemCount: drafts.length,
             itemBuilder: (context, index) {
               final draft = drafts[index];

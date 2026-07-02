@@ -50,7 +50,7 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom),
             itemCount: sessions.length,
             itemBuilder: (context, index) {
               final session = sessions[index];

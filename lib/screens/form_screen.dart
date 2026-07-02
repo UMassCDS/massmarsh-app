@@ -237,7 +237,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
     if (!mounted) return;
     if (result == 'save') {
-      await _saveDraft(context, ref);
+      await _saveDraft(context, ref, navigateAway: true);
     } else if (result == 'discard') {
       Navigator.of(context).pop();
     }
@@ -538,6 +538,76 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
+  Widget _buildActionBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        boxShadow: const [
+          BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 3,
+            child: FilledButton.icon(
+              onPressed: () => _saveDraft(context, ref),
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('Save Draft'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: OutlinedButton.icon(
+              onPressed: () => _endSessionWithConfirm(context, ref),
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text('End Session'),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _endSessionWithConfirm(BuildContext context, WidgetRef ref) async {
+    final saved = await _saveDraft(context, ref, navigateAway: false);
+    if (!saved || !mounted) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End this session?'),
+        content: const Text(
+          'Draft saved. Do you want to end and finalize this field session? '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep Editing'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange[800]),
+            child: const Text('End Session'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && mounted) {
+      await _saveFieldOuting(context, ref);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final titleMap = {
@@ -556,63 +626,62 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       child: Scaffold(
       appBar: AppBar(
         title: Text(title),
-      ),
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // COMMON FIELDS FOR ALL FORMS
-              _buildSectionHeader('Field Session Information'),
-              _buildReadOnlyField(
-                'Observer',
-                ref.watch(authProvider).user?.fullName ?? '',
-                Icons.person,
-              ),
-              _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
-              _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
-              _buildTimeField(_startTimeController, 'Start Time'),
-              _buildTimeField(_endTimeController, 'End Time'),
-              _buildVisibilitySelector(),
-
-              const SizedBox(height: 24),
-
-              // MONITORING TYPE SPECIFIC FIELDS
-              if (widget.monitoringType == 'vegetation')
-                _buildVegetationForm()
-              else if (widget.monitoringType == 'hydrology')
-                _buildHydrologyForm()
-              else if (widget.monitoringType == 'elevation')
-                _buildElevationForm(),
-
-              const SizedBox(height: 24),
-
-              // Submit Button
-              ElevatedButton.icon(
-                onPressed: () => _saveFieldOuting(context, ref),
-                icon: const Icon(Icons.save),
-                label: const Text('Save Field Session'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Save as Draft Button
-              OutlinedButton.icon(
-                onPressed: () => _saveDraft(context, ref),
-                icon: const Icon(Icons.description),
-                label: const Text('Save as Draft'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-              ),
-            ],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.cloud_upload),
+            tooltip: 'Save Draft',
+            onPressed: () => _saveDraft(context, ref),
           ),
-        ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildActionBar(),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: EdgeInsets.fromLTRB(
+                16, 16, 16,
+                16 + MediaQuery.paddingOf(context).bottom,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // COMMON FIELDS FOR ALL FORMS
+                        _buildSectionHeader('Field Session Information'),
+                        _buildReadOnlyField(
+                          'Observer',
+                          ref.watch(authProvider).user?.fullName ?? '',
+                          Icons.person,
+                        ),
+                        _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
+                        _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
+                        _buildTimeField(_startTimeController, 'Start Time'),
+                        _buildTimeField(_endTimeController, 'End Time'),
+                        _buildVisibilitySelector(),
+
+                        const SizedBox(height: 24),
+
+                        // MONITORING TYPE SPECIFIC FIELDS
+                        if (widget.monitoringType == 'vegetation')
+                          _buildVegetationForm()
+                        else if (widget.monitoringType == 'hydrology')
+                          _buildHydrologyForm()
+                        else if (widget.monitoringType == 'elevation')
+                          _buildElevationForm(),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       ),
     );
@@ -1324,7 +1393,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
-  Future<void> _saveDraft(BuildContext context, WidgetRef ref) async {
+  Future<bool> _saveDraft(BuildContext context, WidgetRef ref, {bool navigateAway = false}) async {
     // Don't require validation for drafts - they can be incomplete
     try {
       // If this was an existing draft, delete it first so we can recreate it
@@ -1436,18 +1505,18 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Draft saved successfully!'),
+            content: Text('Draft saved!'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
           ),
         );
 
-        // Navigate back after snackbar appears
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) {
-          Navigator.of(context).pop();
+        if (navigateAway) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) Navigator.of(context).pop();
         }
       }
+      return true;
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1457,6 +1526,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           ),
         );
       }
+      return false;
     }
   }
 
