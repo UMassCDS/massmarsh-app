@@ -256,7 +256,18 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       if (org != null && mounted) {
         setState(() => _visibility = org.defaultVisibility);
         ProtocolService.instance.fetchAndCache(org.id).then((protocol) {
-          if (mounted) setState(() => _activeProtocol = protocol);
+          if (mounted) {
+            setState(() {
+              _activeProtocol = protocol;
+              // Seed RTK point number to "1" for the first plot if the protocol uses it
+              if (protocol.hasExtraField('rtk_point_number') &&
+                  _plots.isNotEmpty &&
+                  (_plots.first.rtkPointNumber == null || _plots.first.rtkPointNumber!.isEmpty)) {
+                _plots.first.rtkPointNumber = '1';
+                _plots.first.rtkPointNumberController.text = '1';
+              }
+            });
+          }
         });
       }
       SpeciesService.instance.fetchAndCache().then((species) {
@@ -267,6 +278,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       _plots.add(PlotData(
         transectId: '',
         plotNumber: 1,
+        plotId: _generatePlotId('', 1),
         habitatType: '',
         distanceAlongTransect: 0,
         latitude: 0,
@@ -630,9 +642,25 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         OutlinedButton.icon(
           onPressed: () {
             setState(() {
+              final plotNum = _nextPlotNumber++;
+              final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
+
+              // Auto-increment RTK point number if the protocol uses it
+              String? autoRtk;
+              if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
+                final existingNums = _plots
+                    .map((p) => int.tryParse(p.rtkPointNumber ?? ''))
+                    .whereType<int>()
+                    .toList();
+                autoRtk = existingNums.isNotEmpty
+                    ? (existingNums.reduce((a, b) => a > b ? a : b) + 1).toString()
+                    : '1';
+              }
+
               _plots.add(PlotData(
-                transectId: _plots.isNotEmpty ? _plots.first.transectId : '',
-                plotNumber: _nextPlotNumber++,
+                transectId: transectId,
+                plotNumber: plotNum,
+                plotId: _generatePlotId(transectId, plotNum),
                 habitatType: '',
                 distanceAlongTransect: 0,
                 latitude: 0,
@@ -640,6 +668,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 canopyHeight: 0,
                 thatchHeight: 0,
                 species: [],
+                rtkPointNumber: autoRtk,
                 pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
               ));
             });
