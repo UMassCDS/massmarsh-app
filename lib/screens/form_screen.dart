@@ -13,6 +13,7 @@ import '../providers/org_provider.dart';
 import '../services/species_service.dart';
 import '../services/protocol_service.dart';
 import '../utils/id_utils.dart';
+import '../utils/snackbar_utils.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -128,7 +129,12 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
   // For vegetation monitoring - store multiple plots
   late List<PlotData> _plots;
-  int _nextPlotNumber = 1;
+
+  // Next plot number is derived from the plots that currently exist, so
+  // deleting a plot frees its number for the next one added.
+  int get _nextPlotNumber => _plots.isEmpty
+      ? 1
+      : _plots.map((p) => p.plotNumber).reduce((a, b) => a > b ? a : b) + 1;
 
   // Visibility
   String _visibility = 'public';
@@ -330,7 +336,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         thatchHeight: 0,
         species: [],
       ));
-      _nextPlotNumber = 2;
     }
     _markClean();
 
@@ -413,9 +418,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             );
           }).toList();
           
-          if (_plots.isNotEmpty) {
-            _nextPlotNumber = _plots.map((p) => p.plotNumber).reduce((a, b) => a > b ? a : b) + 1;
-          }
         });
       } else if (widget.monitoringType == 'hydrology') {
         final hydroRecords = await database.query(
@@ -764,7 +766,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         OutlinedButton.icon(
           onPressed: () {
             setState(() {
-              final plotNum = _nextPlotNumber++;
+              final plotNum = _nextPlotNumber;
               final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
 
               // Continue the previous plot's ID pattern when it ends in a
@@ -1579,13 +1581,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       _markClean();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Draft saved!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        showAppSnackBar(context, 'Draft saved!');
 
         if (navigateAway) {
           await Future.delayed(const Duration(milliseconds: 500));
@@ -1595,11 +1591,11 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving draft: $e'),
-            backgroundColor: Colors.red,
-          ),
+        showAppSnackBar(
+          context,
+          'Error saving draft: $e',
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         );
       }
       return false;
