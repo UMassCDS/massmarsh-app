@@ -151,6 +151,58 @@ class FieldOutingService {
     return localId;
   }
 
+  /// Looks up the local database id of an outing by its local_id.
+  Future<int?> getDbIdByLocalId(String localId) async {
+    final db = await ref.read(appDatabaseProvider.future);
+    final database = await db.database;
+    final result = await database.query(
+      'field_outings',
+      columns: ['id'],
+      where: 'local_id = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
+    if (result.isEmpty) return null;
+    return result.first['id'] as int?;
+  }
+
+  /// Updates an existing draft in place (preserving its id and created_at)
+  /// and replaces its child records.
+  Future<void> updateDraftWithChildren(
+    int draftId,
+    FieldOuting session,
+    List<Map<String, dynamic>> childRecords,
+    String childTable,
+  ) async {
+    final db = await ref.read(appDatabaseProvider.future);
+    final database = await db.database;
+
+    await database.update(
+      'field_outings',
+      {
+        'site_name': session.siteName,
+        'other_members': session.otherMembers,
+        'start_time': session.startTime?.toIso8601String(),
+        'end_time': session.endTime?.toIso8601String(),
+        'visibility': session.visibility,
+        'embargo_until': session.embargoUntil,
+        'updated_at': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [draftId],
+    );
+
+    await database.delete(childTable, where: 'outing_id = ?', whereArgs: [draftId]);
+    for (final record in childRecords) {
+      await database.insert(childTable, {
+        ...record,
+        'outing_id': draftId,
+      });
+    }
+
+    _refreshNotifier.increment();
+  }
+
   Future<void> updateFieldOuting(FieldOuting session) async {
     final db = await ref.read(appDatabaseProvider.future);
     await db.fieldOutingDao.updateFieldOuting(session);
@@ -173,7 +225,7 @@ class FieldOutingService {
       'field_outings',
       where: 'is_draft = ?',
       whereArgs: [1],
-      orderBy: 'created_at DESC',
+      orderBy: 'updated_at DESC',
     );
 
     return result.map((row) => FieldOuting.fromMap(row)).toList();

@@ -12,6 +12,7 @@ import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/species_service.dart';
 import '../services/protocol_service.dart';
+import '../utils/id_utils.dart';
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -169,6 +170,14 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // Active protocol definition (fetched per org)
   ProtocolDefinition? _activeProtocol;
 
+  // The draft row this form is bound to (created on first save, then updated
+  // in place). Starts as the opened draft's id, or null for a new form.
+  int? _currentDraftId;
+
+  // Snapshot of the form state at the last save (or initial load), used to
+  // decide whether the "unsaved changes" prompt is needed.
+  String _savedSignature = '';
+
   String _generatePlotId(String transectId, int plotNumber) {
     final parts = [transectId, plotNumber.toString()]
         .where((p) => p.isNotEmpty)
@@ -176,38 +185,65 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     return parts;
   }
 
-  bool _hasAnyContent() {
-    if (widget.draftId != null) return true;
-    if (_siteNameController.text.isNotEmpty) return true;
-    if (_otherMembersController.text.isNotEmpty) return true;
-    if (_startTimeController.text.isNotEmpty) return true;
-    if (widget.monitoringType == 'vegetation') {
-      for (final plot in _plots) {
-        if (plot.transectId.isNotEmpty) return true;
-        if (plot.species.isNotEmpty) return true;
-        if (plot.notes?.isNotEmpty == true) return true;
-      }
-    } else if (widget.monitoringType == 'hydrology') {
-      if (_areaTreatmentController.text.isNotEmpty) return true;
-      if (_serialNumberController.text.isNotEmpty) return true;
-      if (_waypointNumberController.text.isNotEmpty) return true;
-      if (_rtkElevationController.text.isNotEmpty) return true;
-      if (_waterAboveBelowController.text.isNotEmpty) return true;
-      if (_wellRimToWaterController.text.isNotEmpty) return true;
-      if (_wellRimToMarshController.text.isNotEmpty) return true;
-    } else if (widget.monitoringType == 'elevation') {
-      if (_transectIdController.text.isNotEmpty) return true;
-      if (_pointNumberController.text.isNotEmpty) return true;
-      if (_latitudeController.text.isNotEmpty) return true;
-      if (_longitudeController.text.isNotEmpty) return true;
-      if (_elevationNavd88Controller.text.isNotEmpty) return true;
-      if (_featureTypeController.text.isNotEmpty) return true;
-    }
-    return false;
+  /// Serializes the current form state so it can be compared against the
+  /// state at the last save to detect real unsaved changes.
+  String _formSignature() {
+    final plotSig = _plots.map((plot) {
+      final speciesSig = (plot.species
+              .map((s) => '${s.speciesCode}:${s.percentageCover}')
+              .toList()
+            ..sort())
+          .join(',');
+      return [
+        plot.transectId,
+        plot.plotNumber,
+        plot.plotIdController.text,
+        plot.habitatType,
+        plot.distanceAlongTransect,
+        plot.latController.text,
+        plot.lngController.text,
+        plot.canopyHeight,
+        plot.thatchHeight,
+        plot.elevation,
+        plot.notes,
+        plot.photoPath,
+        plot.subclass,
+        plot.rtkPointNumberController.text,
+        speciesSig,
+      ].join('|');
+    }).join(';');
+
+    return [
+      _siteNameController.text,
+      _otherMembersController.text,
+      _startTimeController.text,
+      _endTimeController.text,
+      _visibility,
+      _embargoUntil,
+      _areaTreatmentController.text,
+      _wlrTypeController.text,
+      _serialNumberController.text,
+      _waypointNumberController.text,
+      _rtkElevationController.text,
+      _waterAboveBelowController.text,
+      _wellRimToWaterController.text,
+      _wellRimToMarshController.text,
+      _transectIdController.text,
+      _pointNumberController.text,
+      _latitudeController.text,
+      _longitudeController.text,
+      _elevationNavd88Controller.text,
+      _featureTypeController.text,
+      plotSig,
+    ].join('||');
   }
 
+  void _markClean() => _savedSignature = _formSignature();
+
+  bool get _isDirty => _formSignature() != _savedSignature;
+
   Future<void> _onBackPressed() async {
-    if (!_hasAnyContent()) {
+    if (!_isDirty) {
       Navigator.of(context).pop();
       return;
     }
@@ -250,13 +286,19 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   void initState() {
     super.initState();
     _plots = [];
+    _currentDraftId = widget.draftId;
     // Load species, protocol, and default visibility after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final org = ref.read(selectedOrgProvider);
       if (org != null && mounted) {
+        // Programmatic defaults shouldn't count as user edits, so keep the
+        // saved-state baseline in sync when the form was clean before.
+        final wasClean = !_isDirty;
         setState(() => _visibility = org.defaultVisibility);
+        if (wasClean) _markClean();
         ProtocolService.instance.fetchAndCache(org.id).then((protocol) {
           if (mounted) {
+            final wasClean = !_isDirty;
             setState(() {
               _activeProtocol = protocol;
               // Seed RTK point number to "1" for the first plot if the protocol uses it
@@ -267,6 +309,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 _plots.first.rtkPointNumberController.text = '1';
               }
             });
+            if (wasClean) _markClean();
           }
         });
       }
@@ -289,7 +332,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       ));
       _nextPlotNumber = 2;
     }
-    
+    _markClean();
+
     // Load draft data if draftId is provided
     if (widget.draftId != null) {
       _loadDraftData();
@@ -318,7 +362,13 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         final end = draft.endTime!;
         _endTimeController.text = '${end.hour > 12 ? end.hour - 12 : end.hour == 0 ? 12 : end.hour}:${end.minute.toString().padLeft(2, '0')} ${end.hour >= 12 ? 'PM' : 'AM'}';
       }
-      
+
+      // Restore visibility settings
+      setState(() {
+        if (draft.visibility != null) _visibility = draft.visibility!;
+        _embargoUntil = draft.embargoUntil;
+      });
+
       // Load child records based on monitoring type
       final db = await ref.read(appDatabaseProvider.future);
       final database = await db.database;
@@ -436,6 +486,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           });
         }
       }
+
+      // The freshly loaded draft is the saved state — start clean.
+      _markClean();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -714,22 +767,32 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               final plotNum = _nextPlotNumber++;
               final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
 
-              // Auto-increment RTK point number if the protocol uses it
+              // Continue the previous plot's ID pattern when it ends in a
+              // number (plotHELLO_001 -> plotHELLO_002); otherwise fall back
+              // to transect_number generation.
+              String? autoPlotId;
+              var inheritedManualId = false;
+              if (_plots.isNotEmpty) {
+                final prev = _plots.last;
+                autoPlotId = incrementTrailingNumber(prev.plotId);
+                inheritedManualId = autoPlotId != null && prev.plotIdManuallySet;
+              }
+
+              // Auto-increment RTK point number if the protocol uses it,
+              // continuing whatever format the last non-empty value used.
               String? autoRtk;
               if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
-                final existingNums = _plots
-                    .map((p) => int.tryParse(p.rtkPointNumber ?? ''))
-                    .whereType<int>()
-                    .toList();
-                autoRtk = existingNums.isNotEmpty
-                    ? (existingNums.reduce((a, b) => a > b ? a : b) + 1).toString()
-                    : '1';
+                final prevRtk = _plots
+                    .map((p) => p.rtkPointNumber?.trim() ?? '')
+                    .lastWhere((v) => v.isNotEmpty, orElse: () => '');
+                autoRtk = prevRtk.isEmpty ? '1' : incrementTrailingNumber(prevRtk);
               }
 
               _plots.add(PlotData(
                 transectId: transectId,
                 plotNumber: plotNum,
-                plotId: _generatePlotId(transectId, plotNum),
+                plotId: autoPlotId ?? _generatePlotId(transectId, plotNum),
+                plotIdManuallySet: inheritedManualId,
                 habitatType: '',
                 distanceAlongTransect: 0,
                 latitude: 0,
@@ -1396,12 +1459,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   Future<bool> _saveDraft(BuildContext context, WidgetRef ref, {bool navigateAway = false}) async {
     // Don't require validation for drafts - they can be incomplete
     try {
-      // If this was an existing draft, delete it first so we can recreate it
-      if (widget.draftId != null) {
-        final service = ref.read(fieldOutingServiceProvider);
-        await service.deleteDraft(widget.draftId!);
-      }
-
       // Parse start and end times if provided
       final startTime = _startTimeController.text.isNotEmpty
           ? _parseTimeString(_startTimeController.text)
@@ -1431,9 +1488,13 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       final service = ref.read(fieldOutingServiceProvider);
       final now = DateTime.now().toIso8601String();
 
+      List<Map<String, dynamic>>? childRecords;
+      String? childTable;
+
       if (widget.monitoringType == 'vegetation') {
+        childTable = 'vegetation_records';
         final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
-        final childRecords = _plots.map((plot) {
+        childRecords = _plots.map((plot) {
           final effectivePlotId = plot.plotId.isNotEmpty
               ? plot.plotId
               : _generatePlotId(plot.transectId, plot.plotNumber);
@@ -1463,9 +1524,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           'updated_at': now,
           };
         }).toList();
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'vegetation_records');
       } else if (widget.monitoringType == 'hydrology') {
-        final childRecords = [
+        childTable = 'hydrology_records';
+        childRecords = [
           {
             'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
             'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
@@ -1481,9 +1542,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             'updated_at': now,
           }
         ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'hydrology_records');
       } else if (widget.monitoringType == 'elevation') {
-        final childRecords = [
+        childTable = 'elevation_records';
+        childRecords = [
           {
             'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
             'transect_id': _transectIdController.text,
@@ -1497,10 +1558,25 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             'updated_at': now,
           }
         ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'elevation_records');
-      } else {
-        await service.saveFieldOuting(outing);
       }
+
+      if (childRecords != null && childTable != null) {
+        if (_currentDraftId != null) {
+          // Update the existing draft in place so repeated saves don't
+          // create duplicates.
+          await service.updateDraftWithChildren(
+              _currentDraftId!, outing, childRecords, childTable);
+        } else {
+          final localId = await service.saveFieldOutingWithChildren(
+              outing, childRecords, childTable);
+          _currentDraftId = await service.getDbIdByLocalId(localId);
+        }
+      } else {
+        final localId = await service.saveFieldOuting(outing);
+        _currentDraftId ??= await service.getDbIdByLocalId(localId);
+      }
+
+      _markClean();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1558,10 +1634,12 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
 
     try {
-      // If this was a draft, delete it first
-      if (widget.draftId != null) {
+      // If this session was saved as a draft, remove the draft row before
+      // creating the final outing.
+      if (_currentDraftId != null) {
         final service = ref.read(fieldOutingServiceProvider);
-        await service.deleteDraft(widget.draftId!);
+        await service.deleteDraft(_currentDraftId!);
+        _currentDraftId = null;
       }
 
       // Parse start and end times
@@ -1659,6 +1737,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       } else {
         await service.saveFieldOuting(outing);
       }
+
+      _markClean();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

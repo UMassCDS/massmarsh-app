@@ -26,6 +26,8 @@ class FieldOutingDao {
         'end_time': outing.endTime?.toIso8601String(),
         'latitude': outing.latitude,
         'longitude': outing.longitude,
+        'visibility': outing.visibility,
+        'embargo_until': outing.embargoUntil,
         'is_draft': outing.isDraft ? 1 : 0,
         'sync_status': 'pending',
         'approval_status': 'pending',

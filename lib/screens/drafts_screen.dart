@@ -69,8 +69,8 @@ class DraftsScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Draft'),
-        content:
-            Text('Delete the draft for "${draft.siteName}"? This cannot be undone.'),
+        content: Text(
+            'Delete the draft for "${draft.siteName.trim().isEmpty ? 'Untitled draft' : draft.siteName}"? This cannot be undone.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -149,7 +149,10 @@ class _DraftCard extends StatelessWidget {
     final icon = _typeIcons[draft.monitoringType] ?? Icons.description;
     final typeLabel =
         '${draft.monitoringType[0].toUpperCase()}${draft.monitoringType.substring(1)} Monitoring';
-    final dateLabel = _formatDate(draft.createdAt);
+    final lastEdited = draft.updatedAt ?? draft.createdAt;
+    final dateLabel = 'Edited ${_formatRelative(lastEdited)}';
+    final exactLabel = _formatExact(lastEdited);
+    final title = draft.siteName.trim().isEmpty ? 'Untitled draft' : draft.siteName;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -189,7 +192,7 @@ class _DraftCard extends StatelessWidget {
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              draft.siteName,
+                              title,
                               style: textTheme.titleSmall
                                   ?.copyWith(fontWeight: FontWeight.w600),
                               overflow: TextOverflow.ellipsis,
@@ -219,6 +222,31 @@ class _DraftCard extends StatelessWidget {
                               )),
                         ],
                       ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today,
+                              size: 12,
+                              color: colorScheme.onSurface.withValues(alpha: 0.45)),
+                          const SizedBox(width: 4),
+                          Text(exactLabel,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: colorScheme.onSurface.withValues(alpha: 0.55),
+                              )),
+                          const SizedBox(width: 10),
+                          Icon(Icons.person_outline,
+                              size: 13,
+                              color: colorScheme.onSurface.withValues(alpha: 0.45)),
+                          const SizedBox(width: 3),
+                          Flexible(
+                            child: Text(authorName,
+                                overflow: TextOverflow.ellipsis,
+                                style: textTheme.labelSmall?.copyWith(
+                                  color: colorScheme.onSurface.withValues(alpha: 0.55),
+                                )),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -230,20 +258,34 @@ class _DraftCard extends StatelessWidget {
     );
   }
 
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'Unknown date';
+  static const _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _formatRelative(DateTime? date) {
+    if (date == null) return 'unknown';
     final now = DateTime.now();
     final diff = now.difference(date);
     if (diff.inDays == 0) {
+      if (diff.inMinutes < 1) return 'just now';
       if (diff.inHours == 0) return '${diff.inMinutes} min ago';
       return '${diff.inHours}h ago';
     } else if (diff.inDays == 1) {
-      return 'Yesterday';
+      return 'yesterday';
     } else if (diff.inDays < 7) {
       return '${diff.inDays} days ago';
     } else {
       return '${date.month}/${date.day}/${date.year}';
     }
+  }
+
+  String _formatExact(DateTime? date) {
+    if (date == null) return 'Unknown date';
+    final hour12 = date.hour % 12 == 0 ? 12 : date.hour % 12;
+    final ampm = date.hour >= 12 ? 'PM' : 'AM';
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '${_monthNames[date.month - 1]} ${date.day}, ${date.year} · $hour12:$minute $ampm';
   }
 }
 
