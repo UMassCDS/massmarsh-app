@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../models/field_outing/field_outing.dart';
+import '../utils/snackbar_utils.dart';
 import 'form_screen.dart';
 
 class DraftsScreen extends ConsumerWidget {
@@ -90,23 +91,18 @@ class DraftsScreen extends ConsumerWidget {
         final service = ref.read(fieldOutingServiceProvider);
         await service.deleteDraft(draft.id!);
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Draft deleted'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          showAppSnackBar(context, 'Draft deleted');
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const DraftsScreen()),
           );
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error deleting draft: $e'),
-              backgroundColor: Colors.red,
-            ),
+          showAppSnackBar(
+            context,
+            'Error deleting draft: $e',
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           );
         }
       }
