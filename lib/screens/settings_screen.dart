@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
 import 'login_screen.dart';
+
+final _packageInfoProvider =
+    FutureProvider<PackageInfo>((ref) => PackageInfo.fromPlatform());
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -253,7 +257,11 @@ class SettingsScreen extends ConsumerWidget {
                       style: textTheme.bodySmall?.copyWith(
                           color:
                               colorScheme.onSurface.withValues(alpha: 0.55))),
-                  trailing: Text('v1.0.0',
+                  trailing: Text(
+                      ref.watch(_packageInfoProvider).maybeWhen(
+                            data: (info) => 'v${info.version}',
+                            orElse: () => '',
+                          ),
                       style: textTheme.labelSmall?.copyWith(
                           color:
                               colorScheme.onSurface.withValues(alpha: 0.45))),
