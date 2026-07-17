@@ -569,10 +569,17 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         return;
       }
 
-      // Get current position
+      // Approximate location grants can't satisfy a "high" accuracy fix and
+      // will hang indefinitely (getCurrentPosition has no default timeout).
+      final accuracyStatus = await Geolocator.getLocationAccuracy();
+      final desiredAccuracy = accuracyStatus == LocationAccuracyStatus.reduced
+          ? LocationAccuracy.reduced
+          : LocationAccuracy.high;
+
       Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+        locationSettings: LocationSettings(
+          accuracy: desiredAccuracy,
+          timeLimit: const Duration(seconds: 20),
         ),
       );
 
