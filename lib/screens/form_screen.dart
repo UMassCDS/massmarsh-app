@@ -569,10 +569,17 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         return;
       }
 
-      // Get current position
+      // Approximate location grants can't satisfy a "high" accuracy fix and
+      // will hang indefinitely (getCurrentPosition has no default timeout).
+      final accuracyStatus = await Geolocator.getLocationAccuracy();
+      final desiredAccuracy = accuracyStatus == LocationAccuracyStatus.reduced
+          ? LocationAccuracy.reduced
+          : LocationAccuracy.high;
+
       Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+        locationSettings: LocationSettings(
+          accuracy: desiredAccuracy,
+          timeLimit: const Duration(seconds: 20),
         ),
       );
 
@@ -1382,9 +1389,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
       );
       if (image != null && mounted) {
         final permanentPath = await _copyImageToPermanentStorage(image.path);
@@ -1406,9 +1410,6 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     try {
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
       );
       if (image != null && mounted) {
         final permanentPath = await _copyImageToPermanentStorage(image.path);
