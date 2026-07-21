@@ -112,7 +112,7 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
                 _TypeBadge(
                     type: session.monitoringType, accent: accent),
                 const SizedBox(width: 8),
-                _StatusBadge(isDraft: isDraft),
+                _StatusBadge(isDraft: isDraft, syncStatus: session.syncStatus),
               ],
             ),
             const SizedBox(height: 16),
@@ -237,21 +237,34 @@ class _TypeBadge extends StatelessWidget {
 
 class _StatusBadge extends StatelessWidget {
   final bool isDraft;
-  const _StatusBadge({required this.isDraft});
+  final String syncStatus;
+  const _StatusBadge({required this.isDraft, required this.syncStatus});
 
   @override
   Widget build(BuildContext context) {
-    final color = isDraft ? Colors.orange.shade700 : Colors.green.shade700;
+    final uploaded = !isDraft && syncStatus == 'synced';
+    final color = isDraft
+        ? Colors.orange.shade700
+        : uploaded
+            ? Colors.green.shade700
+            : Colors.amber.shade800;
     final bg = isDraft
         ? Colors.orange.withValues(alpha: 0.1)
-        : Colors.green.withValues(alpha: 0.1);
+        : uploaded
+            ? Colors.green.withValues(alpha: 0.1)
+            : Colors.amber.withValues(alpha: 0.12);
+    final label = isDraft
+        ? 'Draft'
+        : uploaded
+            ? 'Uploaded'
+            : 'Not yet uploaded';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(isDraft ? 'Draft' : 'Submitted',
+      child: Text(label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: color,
                 fontWeight: FontWeight.w700,

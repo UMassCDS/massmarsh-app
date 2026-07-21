@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/sync_service.dart';
 import 'outing_details_screen.dart';
 
 class OutingsScreen extends ConsumerStatefulWidget {
@@ -13,6 +14,8 @@ class OutingsScreen extends ConsumerStatefulWidget {
 }
 
 class _OutingsScreenState extends ConsumerState<OutingsScreen> {
+  bool _syncingAll = false;
+
   @override
   void initState() {
     super.initState();
@@ -24,6 +27,18 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
     });
   }
 
+  Future<void> _syncAll() async {
+    if (_syncingAll) return;
+    setState(() => _syncingAll = true);
+    try {
+      final orgId = ref.read(selectedOrgIdProvider);
+      await SyncService.instance.resyncAllOutings(orgId);
+      ref.invalidate(fieldOutingsProvider(orgId));
+    } finally {
+      if (mounted) setState(() => _syncingAll = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final orgId = ref.watch(selectedOrgIdProvider);
@@ -33,6 +48,19 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Sessions'),
+        actions: [
+          IconButton(
+            tooltip: 'Sync All',
+            icon: _syncingAll
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+            onPressed: _syncingAll ? null : _syncAll,
+          ),
+        ],
       ),
       body: outingsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -106,6 +134,7 @@ class _SessionCard extends StatelessWidget {
     final accent = _typeColors[type] ?? colorScheme.primary;
     final icon = _typeIcons[type] ?? Icons.description;
     final isDraft = session.isDraft as bool;
+    final uploaded = !isDraft && session.syncStatus == 'synced';
     final typeLabel = '${type[0].toUpperCase()}${type.substring(1)}';
     final createdAt = session.createdAt as DateTime?;
 
@@ -154,13 +183,21 @@ class _SessionCard extends StatelessWidget {
                         ),
                         // Status chip
                         _Chip(
-                          label: isDraft ? 'Draft' : 'Submitted',
+                          label: isDraft
+                              ? 'Draft'
+                              : uploaded
+                                  ? 'Uploaded'
+                                  : 'Not yet uploaded',
                           color: isDraft
                               ? Colors.orange.shade700
-                              : Colors.green.shade700,
+                              : uploaded
+                                  ? Colors.green.shade700
+                                  : Colors.amber.shade800,
                           background: isDraft
                               ? Colors.orange.withValues(alpha: 0.1)
-                              : Colors.green.withValues(alpha: 0.1),
+                              : uploaded
+                                  ? Colors.green.withValues(alpha: 0.1)
+                                  : Colors.amber.withValues(alpha: 0.12),
                         ),
                         if (!isDraft && session.id != null)
                           _PendingPhotoIndicator(outingId: session.id as int),
