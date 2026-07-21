@@ -459,21 +459,63 @@ class SyncService {
     return result.isNotEmpty ? (result.first['count'] as int? ?? 0) : 0;
   }
 
-  /// No-op for drafts, which never sync until submitted
+  // Confirms with the server (not just the local flag) before ever resending,
+  // since /field-outings has no upsert and would duplicate an existing session
   Future<void> resyncOuting(int outingId) async {
     final db = await _db.database;
     final rows = await db.query(
       'field_outings',
-      columns: ['sync_status', 'is_draft'],
+      columns: ['sync_status', 'is_draft', 'local_id'],
       where: 'id = ?',
       whereArgs: [outingId],
       limit: 1,
     );
     if (rows.isEmpty || rows.first['is_draft'] == 1) return;
-    if (rows.first['sync_status'] == 'pending') {
+
+    final localId = rows.first['local_id'] as String?;
+    final alreadyOnServer = localId != null && await _existsOnServer(localId);
+
+    if (alreadyOnServer) {
+      await db.update(
+        'field_outings',
+        {'sync_status': 'synced'},
+        where: 'id = ?',
+        whereArgs: [outingId],
+      );
+    } else if (rows.first['sync_status'] != 'synced') {
       await uploadFieldOuting(outingId);
     }
+
     await retryPendingPhotoUploads(outingId: outingId);
+  }
+
+  /// Runs resyncOuting across every non-draft session in an org
+  Future<void> resyncAllOutings(int orgId) async {
+    final db = await _db.database;
+    final rows = await db.query(
+      'field_outings',
+      columns: ['id'],
+      where: 'org_id = ? AND is_draft = 0',
+      whereArgs: [orgId],
+    );
+    for (final row in rows) {
+      await resyncOuting(row['id'] as int);
+    }
+  }
+
+  // Checks server sync-status for this local_id, regardless of local flag
+  Future<bool> _existsOnServer(String localId) async {
+    try {
+      final response = await _dio.post(
+        '/api/mobile/sync-status',
+        data: {'local_ids': [localId]},
+      );
+      final records = response.data['records'] as Map<String, dynamic>?;
+      return records?[localId]?['synced'] == true;
+    } catch (e) {
+      _logger.w('Could not check server sync status for $localId: $e');
+      return false;
+    }
   }
 
   /// Returns (null, errorMessage) on failure instead of just null
