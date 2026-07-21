@@ -142,7 +142,9 @@ class _SessionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
                       children: [
                         // Type chip
                         _Chip(
@@ -150,7 +152,6 @@ class _SessionCard extends StatelessWidget {
                           color: accent,
                           background: accent.withValues(alpha: 0.1),
                         ),
-                        const SizedBox(width: 6),
                         // Status chip
                         _Chip(
                           label: isDraft ? 'Draft' : 'Submitted',
@@ -161,10 +162,8 @@ class _SessionCard extends StatelessWidget {
                               ? Colors.orange.withValues(alpha: 0.1)
                               : Colors.green.withValues(alpha: 0.1),
                         ),
-                        if (!isDraft && session.id != null) ...[
-                          const SizedBox(width: 6),
+                        if (!isDraft && session.id != null)
                           _PendingPhotoIndicator(outingId: session.id as int),
-                        ],
                       ],
                     ),
                     if (createdAt != null) ...[
