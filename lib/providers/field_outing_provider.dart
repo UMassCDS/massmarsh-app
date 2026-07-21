@@ -29,6 +29,13 @@ final fieldOutingRefreshProvider = FutureProvider<int>((ref) async {
   return _refreshNotifier.value;
 });
 
+// Count of vegetation records in one outing whose photo still needs uploading
+final pendingPhotoUploadsCountProvider =
+    FutureProvider.family<int, int>((ref, outingId) async {
+  ref.watch(fieldOutingRefreshProvider);
+  return SyncService.instance.getPendingPhotoUploadsCount(outingId: outingId);
+});
+
 // Get all field sessions for an organization
 final fieldOutingsProvider = FutureProvider.family<List<FieldOuting>, int>((ref, orgId) async {
   // Watch refresh provider to trigger rebuilds
