@@ -53,6 +53,12 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Salt Marsh Data uses your location to record GPS coordinates for survey plots and field observations.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Salt Marsh Data uses the camera to capture photos of saltmarsh vegetation and species during field surveys.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Salt Marsh Data accesses your photo library to attach images to field data records.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
