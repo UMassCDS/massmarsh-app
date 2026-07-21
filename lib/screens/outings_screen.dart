@@ -142,7 +142,9 @@ class _SessionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
                       children: [
                         // Type chip
                         _Chip(
@@ -150,7 +152,6 @@ class _SessionCard extends StatelessWidget {
                           color: accent,
                           background: accent.withValues(alpha: 0.1),
                         ),
-                        const SizedBox(width: 6),
                         // Status chip
                         _Chip(
                           label: isDraft ? 'Draft' : 'Submitted',
@@ -161,6 +162,8 @@ class _SessionCard extends StatelessWidget {
                               ? Colors.orange.withValues(alpha: 0.1)
                               : Colors.green.withValues(alpha: 0.1),
                         ),
+                        if (!isDraft && session.id != null)
+                          _PendingPhotoIndicator(outingId: session.id as int),
                       ],
                     ),
                     if (createdAt != null) ...[
@@ -182,6 +185,26 @@ class _SessionCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PendingPhotoIndicator extends ConsumerWidget {
+  final int outingId;
+  const _PendingPhotoIndicator({required this.outingId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final countAsync = ref.watch(pendingPhotoUploadsCountProvider(outingId));
+    final count = countAsync.maybeWhen(data: (v) => v, orElse: () => 0);
+    if (count == 0) return const SizedBox.shrink();
+    return Tooltip(
+      message: '$count photo${count == 1 ? '' : 's'} still uploading',
+      child: _Chip(
+        label: 'Photo pending',
+        color: Colors.amber.shade800,
+        background: Colors.amber.withValues(alpha: 0.12),
       ),
     );
   }

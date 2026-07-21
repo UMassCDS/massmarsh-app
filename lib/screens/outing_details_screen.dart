@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
+import '../services/sync_service.dart';
 
 class OutingDetailsScreen extends ConsumerStatefulWidget {
   final FieldOuting outing;
@@ -19,6 +20,7 @@ class OutingDetailsScreen extends ConsumerStatefulWidget {
 class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
   List<Map<String, dynamic>> _childRecords = [];
   bool _loading = true;
+  bool _resyncing = false;
 
   @override
   void initState() {
@@ -55,6 +57,18 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     });
   }
 
+  Future<void> _resyncOuting() async {
+    final id = widget.outing.id;
+    if (id == null || _resyncing) return;
+    setState(() => _resyncing = true);
+    try {
+      await SyncService.instance.resyncOuting(id);
+      await _loadChildRecords();
+    } finally {
+      if (mounted) setState(() => _resyncing = false);
+    }
+  }
+
   static const _typeColors = {
     'vegetation': Color(0xFF2E7D32),
     'hydrology': Color(0xFF0277BD),
@@ -71,7 +85,22 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     final isDraft = session.isDraft;
 
     return Scaffold(
-      appBar: AppBar(title: Text(session.siteName)),
+      appBar: AppBar(
+        title: Text(session.siteName),
+        actions: [
+          IconButton(
+            tooltip: 'Resync',
+            icon: _resyncing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+            onPressed: (isDraft || _resyncing) ? null : _resyncOuting,
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         child: Column(
@@ -231,6 +260,50 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
+class _PhotoStatusBadge extends StatelessWidget {
+  final bool synced;
+  final String? error;
+  const _PhotoStatusBadge({required this.synced, this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    final Color bg;
+    final String label;
+    if (synced) {
+      color = Colors.green.shade700;
+      bg = Colors.green.withValues(alpha: 0.1);
+      label = 'Photo synced';
+    } else if (error != null && error!.isNotEmpty) {
+      color = Colors.red.shade700;
+      bg = Colors.red.withValues(alpha: 0.1);
+      label = 'Photo upload failed, will retry';
+    } else {
+      color = Colors.amber.shade800;
+      bg = Colors.amber.withValues(alpha: 0.12);
+      label = 'Photo pending upload';
+    }
+
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              )),
+    );
+
+    if (error != null && error!.isNotEmpty) {
+      return Tooltip(message: error!, child: badge);
+    }
+    return badge;
+  }
+}
+
 class _SectionCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -308,6 +381,8 @@ class _RecordCard extends StatelessWidget {
     'updated_at',
     'photo_filename',
     'photo_local_path',
+    'photo_upload_error',
+    'photo_upload_attempts',
   };
 
   @override
@@ -316,6 +391,9 @@ class _RecordCard extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final photoUrl = record['photo_filename'] as String?;
     final photoLocalPath = record['photo_local_path'] as String?;
+    final photoUploadError = record['photo_upload_error'] as String?;
+    final hasPhoto = photoLocalPath != null && photoLocalPath.isNotEmpty;
+    final photoSynced = photoUrl != null && photoUrl.startsWith('http');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -346,7 +424,7 @@ class _RecordCard extends StatelessWidget {
             ),
 
             // Photo
-            if (photoUrl != null && photoUrl.startsWith('http')) ...[
+            if (photoSynced) ...[
               const SizedBox(height: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
@@ -364,8 +442,9 @@ class _RecordCard extends StatelessWidget {
                       style: TextStyle(color: colorScheme.error)),
                 ),
               ),
-            ] else if (photoLocalPath != null &&
-                photoLocalPath.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              _PhotoStatusBadge(synced: true),
+            ] else if (hasPhoto) ...[
               Builder(builder: (context) {
                 final file = File(photoLocalPath);
                 if (!file.existsSync()) return const SizedBox.shrink();
@@ -377,6 +456,11 @@ class _RecordCard extends StatelessWidget {
                   ),
                 );
               }),
+              const SizedBox(height: 6),
+              _PhotoStatusBadge(
+                synced: false,
+                error: photoUploadError,
+              ),
             ],
 
             const SizedBox(height: 10),

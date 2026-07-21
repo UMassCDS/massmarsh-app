@@ -143,14 +143,19 @@ class SyncService {
 
       print('vegRecords: $vegRecords');
 
-      // Upload photos first, collect blob URLs keyed by local_id
+      // Upload photos first, collect blob URLs (or errors) keyed by local_id
       final photoUrls = <String, String>{};
+      final photoErrors = <String, String>{};
       for (final veg in vegRecords) {
         final localPath = veg['photo_local_path'] as String?;
         final localId = veg['local_id'] as String? ?? '';
         if (localPath != null && localPath.isNotEmpty) {
-          final url = await _uploadPhoto(localPath);
-          if (url != null) photoUrls[localId] = url;
+          final (url, error) = await _uploadPhoto(localPath);
+          if (url != null) {
+            photoUrls[localId] = url;
+          } else {
+            photoErrors[localId] = error ?? 'Photo upload failed';
+          }
         }
       }
 
@@ -261,6 +266,7 @@ class SyncService {
         if (childRecordIds['vegetation'] != null) {
           final vegMap = childRecordIds['vegetation'] as Map<String, dynamic>;
           for (final entry in vegMap.entries) {
+            final photoFailed = photoErrors.containsKey(entry.key);
             await db.update(
               'vegetation_records',
               {
@@ -268,6 +274,9 @@ class SyncService {
                 'server_id': entry.value,
                 if (photoUrls.containsKey(entry.key))
                   'photo_filename': photoUrls[entry.key],
+                'photo_upload_error': photoFailed ? photoErrors[entry.key] : null,
+                if (photoFailed)
+                  'photo_upload_attempts': 1,
               },
               where: 'local_id = ?',
               whereArgs: [entry.key],
@@ -356,6 +365,10 @@ class SyncService {
       }
 
       _logger.i('Uploaded $successCount/${pendingOutings.length} pending outings');
+
+      // Synced outings can still have a failed photo, so they need a separate pass
+      await retryPendingPhotoUploads();
+
       return successCount;
     } catch (e) {
       _logger.e('Error uploading pending outings: $e');
@@ -363,12 +376,111 @@ class SyncService {
     }
   }
 
-  /// Upload a single photo file to the backend and return the blob URL.
-  /// Returns null if the upload fails (outing sync will continue without the photo).
-  Future<String?> _uploadPhoto(String localPath) async {
+  /// Retries photos for records with a server_id but no photo_filename yet
+  Future<int> retryPendingPhotoUploads({int? outingId}) async {
+    if (!await hasConnectivity()) return 0;
+
+    final db = await _db.database;
+    final rows = await db.query(
+      'vegetation_records',
+      where: "server_id IS NOT NULL AND photo_local_path IS NOT NULL AND "
+          "photo_local_path != '' AND (photo_filename IS NULL OR photo_filename = '')"
+          "${outingId != null ? ' AND outing_id = ?' : ''}",
+      whereArgs: outingId != null ? [outingId] : null,
+    );
+
+    int successCount = 0;
+
+    for (final row in rows) {
+      final localPath = row['photo_local_path'] as String;
+      final serverId = row['server_id'] as int;
+      final attempts = (row['photo_upload_attempts'] as int?) ?? 0;
+
+      final (url, error) = await _uploadPhoto(localPath);
+      if (url == null) {
+        await db.update(
+          'vegetation_records',
+          {
+            'photo_upload_error': error,
+            'photo_upload_attempts': attempts + 1,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        continue;
+      }
+
+      try {
+        await _dio.put(
+          '/api/mobile/vegetation-records/$serverId/photo',
+          data: {'photo_url': url},
+        );
+        await db.update(
+          'vegetation_records',
+          {
+            'photo_filename': url,
+            'photo_upload_error': null,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+        successCount++;
+      } catch (e) {
+        _logger.w('Failed to attach uploaded photo to record $serverId: $e');
+        await db.update(
+          'vegetation_records',
+          {
+            'photo_upload_error': e.toString(),
+            'photo_upload_attempts': attempts + 1,
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+    }
+
+    if (rows.isNotEmpty) {
+      _logger.i('Retried ${rows.length} pending photo upload(s), $successCount succeeded');
+    }
+
+    return successCount;
+  }
+
+  /// Get count of vegetation records whose photo still needs to be (re)uploaded
+  Future<int> getPendingPhotoUploadsCount({int? outingId}) async {
+    final db = await _db.database;
+    final result = await db.rawQuery(
+      "SELECT COUNT(*) as count FROM vegetation_records WHERE server_id IS NOT NULL "
+      "AND photo_local_path IS NOT NULL AND photo_local_path != '' "
+      "AND (photo_filename IS NULL OR photo_filename = '')"
+      "${outingId != null ? ' AND outing_id = ?' : ''}",
+      outingId != null ? [outingId] : [],
+    );
+    return result.isNotEmpty ? (result.first['count'] as int? ?? 0) : 0;
+  }
+
+  /// No-op for drafts, which never sync until submitted
+  Future<void> resyncOuting(int outingId) async {
+    final db = await _db.database;
+    final rows = await db.query(
+      'field_outings',
+      columns: ['sync_status', 'is_draft'],
+      where: 'id = ?',
+      whereArgs: [outingId],
+      limit: 1,
+    );
+    if (rows.isEmpty || rows.first['is_draft'] == 1) return;
+    if (rows.first['sync_status'] == 'pending') {
+      await uploadFieldOuting(outingId);
+    }
+    await retryPendingPhotoUploads(outingId: outingId);
+  }
+
+  /// Returns (null, errorMessage) on failure instead of just null
+  Future<(String? url, String? error)> _uploadPhoto(String localPath) async {
     try {
       final file = await _multipartFileFromPath(localPath);
-      if (file == null) return null;
+      if (file == null) return (null, 'Could not read photo file');
 
       final formData = FormData.fromMap({'file': file});
 
@@ -381,12 +493,18 @@ class SyncService {
       _dio.options.headers['Content-Type'] = originalContentType;
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        return response.data['url'] as String?;
+        return (response.data['url'] as String?, null);
       }
+      return (null, 'Upload rejected: ${response.statusCode}');
+    } on DioException catch (e) {
+      final detail = e.response?.data is Map ? e.response?.data['detail'] : null;
+      final message = detail?.toString() ?? e.message ?? 'Network error';
+      _logger.w('Photo upload failed for $localPath: $message');
+      return (null, message);
     } catch (e) {
       _logger.w('Photo upload failed for $localPath: $e');
+      return (null, e.toString());
     }
-    return null;
   }
 
   Future<MultipartFile?> _multipartFileFromPath(String path) async {

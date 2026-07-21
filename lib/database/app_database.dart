@@ -13,7 +13,7 @@ import 'seeds/template_seeds.dart';
 /// Main database class for MassMarsh app
 class AppDatabase {
   static const String _dbName = 'mass_marsh.db';
-  static const int _dbVersion = 7;
+  static const int _dbVersion = 8;
 
   static final AppDatabase _instance = AppDatabase._internal();
 
@@ -239,6 +239,15 @@ class AppDatabase {
       ''');
       await db.execute('DROP TABLE _field_outings_old');
       await db.execute('PRAGMA foreign_keys = ON');
+    }
+    if (oldVersion < 8) {
+      // Separate from sync_status so a failed photo isn't indistinguishable from a synced one
+      await db.execute(
+        'ALTER TABLE vegetation_records ADD COLUMN photo_upload_error TEXT',
+      );
+      await db.execute(
+        'ALTER TABLE vegetation_records ADD COLUMN photo_upload_attempts INTEGER DEFAULT 0',
+      );
     }
   }
 
