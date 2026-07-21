@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/organization/organization.dart';
 import '../services/org_service.dart';
 import 'auth_provider.dart';
@@ -25,12 +26,38 @@ final myOrgsProvider = FutureProvider<List<Organization>>((ref) async {
 // ---------------------------------------------------------------------------
 
 class SelectedOrgNotifier extends Notifier<Organization?> {
+  static const _orgIdKey = 'selected_org_id';
+  static const _storage = FlutterSecureStorage();
+
   @override
-  Organization? build() => null;
+  Organization? build() {
+    _restore();
+    return null;
+  }
 
-  void select(Organization org) => state = org;
+  // Restores the last selected org so it doesn't silently reset on cold start
+  Future<void> _restore() async {
+    final savedId = await _storage.read(key: _orgIdKey);
+    if (savedId == null) return;
+    final orgs = await ref.read(myOrgsProvider.future);
+    if (state != null) return;
+    for (final org in orgs) {
+      if (org.id.toString() == savedId) {
+        state = org;
+        return;
+      }
+    }
+  }
 
-  void clear() => state = null;
+  void select(Organization org) {
+    state = org;
+    _storage.write(key: _orgIdKey, value: org.id.toString());
+  }
+
+  void clear() {
+    state = null;
+    _storage.delete(key: _orgIdKey);
+  }
 }
 
 final selectedOrgProvider =
