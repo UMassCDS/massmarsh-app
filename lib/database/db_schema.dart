@@ -132,6 +132,8 @@ class DbSchema {
       species_observations TEXT NOT NULL,
       photo_local_path TEXT,
       photo_filename TEXT,
+      photo_upload_error TEXT,
+      photo_upload_attempts INTEGER DEFAULT 0,
       notes TEXT,
       protocol_code TEXT,
       subclass TEXT,
