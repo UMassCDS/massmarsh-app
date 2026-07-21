@@ -62,11 +62,27 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     if (id == null || _resyncing) return;
     setState(() => _resyncing = true);
     try {
-      await SyncService.instance.resyncOuting(id);
+      final result = await SyncService.instance.resyncOuting(id);
       await _loadChildRecords();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_resyncMessage(result))),
+      );
     } finally {
       if (mounted) setState(() => _resyncing = false);
     }
+  }
+
+  String _resyncMessage(ResyncResult result) {
+    if (result.uploadFailed) {
+      return 'Could not upload session, check your connection and try again';
+    }
+    final suffix = result.photosStillPending > 0
+        ? ', ${result.photosStillPending} photo(s) still uploading'
+        : '';
+    if (result.uploadedNow) return 'Session uploaded$suffix';
+    if (result.alreadyOnServer) return 'Already up to date$suffix';
+    return 'Nothing to sync$suffix';
   }
 
   static const _typeColors = {

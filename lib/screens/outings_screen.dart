@@ -32,8 +32,18 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
     setState(() => _syncingAll = true);
     try {
       final orgId = ref.read(selectedOrgIdProvider);
-      await SyncService.instance.resyncAllOutings(orgId);
+      final result = await SyncService.instance.resyncAllOutings(orgId);
       ref.invalidate(fieldOutingsProvider(orgId));
+      if (!mounted) return;
+      final suffix = result.photosStillPending > 0
+          ? ', ${result.photosStillPending} photo(s) still uploading'
+          : '';
+      final message = result.uploadedCount > 0
+          ? 'Uploaded ${result.uploadedCount} session(s)$suffix'
+          : 'Everything already up to date$suffix';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.uploadFailed ? 'Some sessions could not be uploaded, check your connection' : message)),
+      );
     } finally {
       if (mounted) setState(() => _syncingAll = false);
     }

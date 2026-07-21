@@ -6,6 +6,22 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:logger/logger.dart';
 import '../database/app_database.dart';
 
+class ResyncResult {
+  final bool alreadyOnServer;
+  final bool uploadedNow;
+  final bool uploadFailed;
+  final int photosStillPending;
+  final int uploadedCount;
+
+  const ResyncResult({
+    required this.alreadyOnServer,
+    required this.uploadedNow,
+    required this.uploadFailed,
+    required this.photosStillPending,
+    this.uploadedCount = 1,
+  });
+}
+
 /// Service for synchronizing local database with cloud backend.
 ///
 /// Implements an offline-first architecture where:
@@ -461,19 +477,23 @@ class SyncService {
 
   // Confirms with the server (not just the local flag) before ever resending,
   // since /field-outings has no upsert and would duplicate an existing session
-  Future<void> resyncOuting(int outingId) async {
+  Future<ResyncResult> resyncOuting(int outingId) async {
     final db = await _db.database;
     final rows = await db.query(
       'field_outings',
-      columns: ['sync_status', 'is_draft', 'local_id'],
+      columns: ['is_draft', 'local_id'],
       where: 'id = ?',
       whereArgs: [outingId],
       limit: 1,
     );
-    if (rows.isEmpty || rows.first['is_draft'] == 1) return;
+    if (rows.isEmpty || rows.first['is_draft'] == 1) {
+      return const ResyncResult(alreadyOnServer: false, uploadedNow: false, uploadFailed: false, photosStillPending: 0);
+    }
 
     final localId = rows.first['local_id'] as String?;
     final alreadyOnServer = localId != null && await _existsOnServer(localId);
+    var uploadedNow = false;
+    var uploadFailed = false;
 
     if (alreadyOnServer) {
       await db.update(
@@ -482,15 +502,25 @@ class SyncService {
         where: 'id = ?',
         whereArgs: [outingId],
       );
-    } else if (rows.first['sync_status'] != 'synced') {
-      await uploadFieldOuting(outingId);
+    } else {
+      final serverId = await uploadFieldOuting(outingId);
+      uploadedNow = serverId != null;
+      uploadFailed = serverId == null;
     }
 
     await retryPendingPhotoUploads(outingId: outingId);
+    final photosStillPending = await getPendingPhotoUploadsCount(outingId: outingId);
+
+    return ResyncResult(
+      alreadyOnServer: alreadyOnServer,
+      uploadedNow: uploadedNow,
+      uploadFailed: uploadFailed,
+      photosStillPending: photosStillPending,
+    );
   }
 
   /// Runs resyncOuting across every non-draft session in an org
-  Future<void> resyncAllOutings(int orgId) async {
+  Future<ResyncResult> resyncAllOutings(int orgId) async {
     final db = await _db.database;
     final rows = await db.query(
       'field_outings',
@@ -498,9 +528,22 @@ class SyncService {
       where: 'org_id = ? AND is_draft = 0',
       whereArgs: [orgId],
     );
+    var uploadedCount = 0;
+    var failedCount = 0;
+    var photosStillPending = 0;
     for (final row in rows) {
-      await resyncOuting(row['id'] as int);
+      final result = await resyncOuting(row['id'] as int);
+      if (result.uploadedNow) uploadedCount++;
+      if (result.uploadFailed) failedCount++;
+      photosStillPending += result.photosStillPending;
     }
+    return ResyncResult(
+      alreadyOnServer: false,
+      uploadedNow: uploadedCount > 0,
+      uploadFailed: failedCount > 0,
+      photosStillPending: photosStillPending,
+      uploadedCount: uploadedCount,
+    );
   }
 
   // Checks server sync-status for this local_id, regardless of local flag
