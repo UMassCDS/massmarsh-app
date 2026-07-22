@@ -13,6 +13,7 @@ class ResyncResult {
   final int photosStillPending;
   final int uploadedCount;
   final int plotsRecovered;
+  final int photosUploaded;
 
   const ResyncResult({
     required this.alreadyOnServer,
@@ -21,6 +22,7 @@ class ResyncResult {
     required this.photosStillPending,
     this.uploadedCount = 1,
     this.plotsRecovered = 0,
+    this.photosUploaded = 0,
   });
 }
 
@@ -551,7 +553,7 @@ class SyncService {
       uploadFailed = serverId == null;
     }
 
-    await retryPendingPhotoUploads(outingId: outingId);
+    final photosUploaded = await retryPendingPhotoUploads(outingId: outingId);
     final photosStillPending = await getPendingPhotoUploadsCount(outingId: outingId);
 
     return ResyncResult(
@@ -560,6 +562,7 @@ class SyncService {
       uploadFailed: uploadFailed,
       photosStillPending: photosStillPending,
       plotsRecovered: plotsRecovered,
+      photosUploaded: photosUploaded,
     );
   }
 
@@ -630,12 +633,14 @@ class SyncService {
     var failedCount = 0;
     var photosStillPending = 0;
     var plotsRecovered = 0;
+    var photosUploaded = 0;
     for (final row in rows) {
       final result = await resyncOuting(row['id'] as int);
       if (result.uploadedNow) uploadedCount++;
       if (result.uploadFailed) failedCount++;
       photosStillPending += result.photosStillPending;
       plotsRecovered += result.plotsRecovered;
+      photosUploaded += result.photosUploaded;
     }
     return ResyncResult(
       alreadyOnServer: false,
@@ -644,6 +649,7 @@ class SyncService {
       photosStillPending: photosStillPending,
       uploadedCount: uploadedCount,
       plotsRecovered: plotsRecovered,
+      photosUploaded: photosUploaded,
     );
   }
 

@@ -64,6 +64,7 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     setState(() => _resyncing = true);
     try {
       final result = await SyncService.instance.resyncOuting(id);
+      ref.invalidate(pendingPhotoUploadsCountProvider(id));
       await _loadChildRecords();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -78,15 +79,14 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     if (result.uploadFailed) {
       return 'Could not upload session, check your connection and try again';
     }
-    var suffix = result.photosStillPending > 0
-        ? ', ${result.photosStillPending} photo(s) still uploading'
-        : '';
-    if (result.plotsRecovered > 0) {
-      suffix = ', recovered ${result.plotsRecovered} missing plot(s)$suffix';
-    }
-    if (result.uploadedNow) return 'Session uploaded$suffix';
-    if (result.alreadyOnServer) return 'Already up to date$suffix';
-    return 'Nothing to sync$suffix';
+    final parts = <String>[];
+    if (result.uploadedNow) parts.add('session uploaded');
+    if (result.plotsRecovered > 0) parts.add('recovered ${result.plotsRecovered} missing plot(s)');
+    if (result.photosUploaded > 0) parts.add('uploaded ${result.photosUploaded} photo(s)');
+    if (result.photosStillPending > 0) parts.add('${result.photosStillPending} photo(s) still uploading');
+    if (parts.isEmpty) return result.alreadyOnServer ? 'Already fully synced' : 'Nothing to sync';
+    final msg = parts.join(', ');
+    return '${msg[0].toUpperCase()}${msg.substring(1)}';
   }
 
   static const _typeColors = {

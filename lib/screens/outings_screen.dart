@@ -34,16 +34,15 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
       final orgId = ref.read(selectedOrgIdProvider);
       final result = await SyncService.instance.resyncAllOutings(orgId);
       ref.invalidate(fieldOutingsProvider(orgId));
+      ref.invalidate(pendingPhotoUploadsCountProvider);
       if (!mounted) return;
-      var suffix = result.photosStillPending > 0
-          ? ', ${result.photosStillPending} photo(s) still uploading'
-          : '';
-      if (result.plotsRecovered > 0) {
-        suffix = ', recovered ${result.plotsRecovered} missing plot(s)$suffix';
-      }
-      final message = result.uploadedCount > 0
-          ? 'Uploaded ${result.uploadedCount} session(s)$suffix'
-          : 'Everything already up to date$suffix';
+      final parts = <String>[];
+      if (result.uploadedCount > 0) parts.add('uploaded ${result.uploadedCount} session(s)');
+      if (result.plotsRecovered > 0) parts.add('recovered ${result.plotsRecovered} missing plot(s)');
+      if (result.photosUploaded > 0) parts.add('uploaded ${result.photosUploaded} photo(s)');
+      if (result.photosStillPending > 0) parts.add('${result.photosStillPending} photo(s) still uploading');
+      final joined = parts.isEmpty ? 'Everything already up to date' : parts.join(', ');
+      final message = '${joined[0].toUpperCase()}${joined.substring(1)}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.uploadFailed ? 'Some sessions could not be uploaded, check your connection' : message)),
       );
