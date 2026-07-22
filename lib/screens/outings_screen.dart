@@ -192,25 +192,17 @@ class _SessionCard extends StatelessWidget {
                           background: accent.withValues(alpha: 0.1),
                         ),
                         // Status chip
-                        _Chip(
-                          label: isDraft
-                              ? 'Draft'
-                              : uploaded
-                                  ? 'Uploaded'
-                                  : 'Not yet uploaded',
-                          color: isDraft
-                              ? Colors.orange.shade700
-                              : uploaded
-                                  ? Colors.green.shade700
-                                  : Colors.amber.shade800,
-                          background: isDraft
-                              ? Colors.orange.withValues(alpha: 0.1)
-                              : uploaded
-                                  ? Colors.green.withValues(alpha: 0.1)
-                                  : Colors.amber.withValues(alpha: 0.12),
-                        ),
-                        if (!isDraft && session.id != null)
-                          _PendingPhotoIndicator(outingId: session.id as int),
+                        if (isDraft)
+                          _Chip(
+                            label: 'Draft',
+                            color: Colors.orange.shade700,
+                            background: Colors.orange.withValues(alpha: 0.1),
+                          )
+                        else
+                          _SyncStatusChip(
+                            metadataSynced: uploaded,
+                            outingId: session.id as int?,
+                          ),
                       ],
                     ),
                     if (createdAt != null) ...[
@@ -237,23 +229,33 @@ class _SessionCard extends StatelessWidget {
   }
 }
 
-class _PendingPhotoIndicator extends ConsumerWidget {
-  final int outingId;
-  const _PendingPhotoIndicator({required this.outingId});
+// Combines metadata sync status with pending-photo count into one signal,
+// so "fully synced" always means the whole session, not just the record row
+class _SyncStatusChip extends ConsumerWidget {
+  final bool metadataSynced;
+  final int? outingId;
+  const _SyncStatusChip({required this.metadataSynced, required this.outingId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final countAsync = ref.watch(pendingPhotoUploadsCountProvider(outingId));
-    final count = countAsync.maybeWhen(data: (v) => v, orElse: () => 0);
-    if (count == 0) return const SizedBox.shrink();
-    return Tooltip(
-      message: '$count photo${count == 1 ? '' : 's'} still uploading',
-      child: _Chip(
-        label: 'Photo pending',
-        color: Colors.amber.shade800,
-        background: Colors.amber.withValues(alpha: 0.12),
-      ),
-    );
+    final photosPending = outingId == null
+        ? 0
+        : ref
+            .watch(pendingPhotoUploadsCountProvider(outingId!))
+            .maybeWhen(data: (v) => v, orElse: () => 0);
+    final fullySynced = metadataSynced && photosPending == 0;
+
+    final label = fullySynced
+        ? 'Fully synced'
+        : photosPending > 0
+            ? 'Needs resync ($photosPending photo${photosPending == 1 ? '' : 's'})'
+            : 'Needs resync';
+    final color = fullySynced ? Colors.green.shade700 : Colors.amber.shade800;
+    final background = fullySynced
+        ? Colors.green.withValues(alpha: 0.1)
+        : Colors.amber.withValues(alpha: 0.12);
+
+    return _Chip(label: label, color: color, background: background);
   }
 }
 

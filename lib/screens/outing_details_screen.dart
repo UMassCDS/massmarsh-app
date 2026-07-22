@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
+import '../providers/field_outing_provider.dart';
 import '../services/sync_service.dart';
 
 class OutingDetailsScreen extends ConsumerStatefulWidget {
@@ -128,7 +129,11 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
                 _TypeBadge(
                     type: session.monitoringType, accent: accent),
                 const SizedBox(width: 8),
-                _StatusBadge(isDraft: isDraft, syncStatus: session.syncStatus),
+                _StatusBadge(
+                  isDraft: isDraft,
+                  syncStatus: session.syncStatus,
+                  outingId: session.id,
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -251,29 +256,45 @@ class _TypeBadge extends StatelessWidget {
   }
 }
 
-class _StatusBadge extends StatelessWidget {
+// Combines metadata sync status with pending-photo count into one signal,
+// so "fully synced" always means the whole session, not just the record row
+class _StatusBadge extends ConsumerWidget {
   final bool isDraft;
   final String syncStatus;
-  const _StatusBadge({required this.isDraft, required this.syncStatus});
+  final int? outingId;
+  const _StatusBadge({
+    required this.isDraft,
+    required this.syncStatus,
+    required this.outingId,
+  });
 
   @override
-  Widget build(BuildContext context) {
-    final uploaded = !isDraft && syncStatus == 'synced';
+  Widget build(BuildContext context, WidgetRef ref) {
+    final metadataSynced = !isDraft && syncStatus == 'synced';
+    final photosPending = (isDraft || outingId == null)
+        ? 0
+        : ref
+            .watch(pendingPhotoUploadsCountProvider(outingId!))
+            .maybeWhen(data: (v) => v, orElse: () => 0);
+    final fullySynced = metadataSynced && photosPending == 0;
+
     final color = isDraft
         ? Colors.orange.shade700
-        : uploaded
+        : fullySynced
             ? Colors.green.shade700
             : Colors.amber.shade800;
     final bg = isDraft
         ? Colors.orange.withValues(alpha: 0.1)
-        : uploaded
+        : fullySynced
             ? Colors.green.withValues(alpha: 0.1)
             : Colors.amber.withValues(alpha: 0.12);
     final label = isDraft
         ? 'Draft'
-        : uploaded
-            ? 'Uploaded'
-            : 'Not yet uploaded';
+        : fullySynced
+            ? 'Fully synced'
+            : photosPending > 0
+                ? 'Needs resync ($photosPending photo${photosPending == 1 ? '' : 's'})'
+                : 'Needs resync';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
