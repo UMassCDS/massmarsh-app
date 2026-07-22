@@ -2,7 +2,7 @@ name: mass_marsh_app
 description: "Salt Marsh Data - mobile app for salt marsh field data collection and sync."
 publish_to: 'none'
 
-version: 0.5.0+7
+version: 0.6.0+8
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
