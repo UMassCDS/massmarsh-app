@@ -230,11 +230,14 @@ class FieldOutingService {
   Future<List<FieldOuting>> getDrafts() async {
     final db = await ref.read(appDatabaseProvider.future);
     final database = await db.database;
-    
+    final userId = ref.read(authProvider).user?.id;
+
+    // Scoped like the sessions list, so a shared device doesn't mix drafts
+    // between accounts (or orgs) that happen to share the same local DB
     final result = await database.query(
       'field_outings',
-      where: 'is_draft = ?',
-      whereArgs: [1],
+      where: userId != null ? 'is_draft = ? AND created_by_user_id = ?' : 'is_draft = ?',
+      whereArgs: userId != null ? [1, userId] : [1],
       orderBy: 'updated_at DESC',
     );
 
