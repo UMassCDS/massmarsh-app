@@ -573,7 +573,15 @@ class SyncService {
       final originalContentType = _dio.options.headers['Content-Type'];
       _dio.options.headers.remove('Content-Type');
 
-      final response = await _dio.post('/api/mobile/photos', data: formData);
+      // Full-res photos on a weak connection can take minutes, not 60s
+      final response = await _dio.post(
+        '/api/mobile/photos',
+        data: formData,
+        options: Options(
+          sendTimeout: const Duration(minutes: 5),
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      );
 
       _dio.options.headers['Content-Type'] = originalContentType;
 
