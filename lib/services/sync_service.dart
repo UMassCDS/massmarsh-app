@@ -45,6 +45,12 @@ class SyncService {
 
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
 
+  // Prevents overlapping uploads of the same outing (Resync, Sync All,
+  // connectivity restore, and the background task can all trigger at once),
+  // since /field-outings has no upsert and duplicate POSTs crash on a unique
+  // constraint instead of just being redundant
+  final Set<int> _outingsUploading = {};
+
   static SyncService? _instance;
 
   /// Private constructor for singleton pattern
@@ -135,6 +141,19 @@ class SyncService {
   ///
   /// Returns server-assigned ID on success, null on failure.
   Future<int?> uploadFieldOuting(int localOutingId) async {
+    if (_outingsUploading.contains(localOutingId)) {
+      _logger.w('Upload already in progress for outing $localOutingId, skipping');
+      return null;
+    }
+    _outingsUploading.add(localOutingId);
+    try {
+      return await _doUploadFieldOuting(localOutingId);
+    } finally {
+      _outingsUploading.remove(localOutingId);
+    }
+  }
+
+  Future<int?> _doUploadFieldOuting(int localOutingId) async {
     try {
       if (!await hasConnectivity()) {
         _logger.w('No connectivity available for field outing upload');
@@ -156,6 +175,22 @@ class SyncService {
       }
 
       final outing = outingRows.first;
+
+      // A prior attempt may have already succeeded server-side without this
+      // row ever being marked synced (e.g. the app lost the response) -
+      // resending would crash on the source_id unique constraint, so check first
+      final localId = outing['local_id'] as String?;
+      final existingServerId = localId != null ? await _existingServerId(localId) : null;
+      if (existingServerId != null) {
+        await db.update(
+          'field_outings',
+          {'sync_status': 'synced', 'server_id': existingServerId},
+          where: 'id = ?',
+          whereArgs: [localOutingId],
+        );
+        _logger.i('Outing $localOutingId already existed server-side, marked synced without resending');
+        return existingServerId;
+      }
 
       // Build the request payload
       final payload = <String, dynamic>{
@@ -496,7 +531,8 @@ class SyncService {
     }
 
     final localId = rows.first['local_id'] as String?;
-    final alreadyOnServer = localId != null && await _existsOnServer(localId);
+    final existingServerId = localId != null ? await _existingServerId(localId) : null;
+    final alreadyOnServer = existingServerId != null;
     var uploadedNow = false;
     var uploadFailed = false;
     var plotsRecovered = 0;
@@ -504,14 +540,11 @@ class SyncService {
     if (alreadyOnServer) {
       await db.update(
         'field_outings',
-        {'sync_status': 'synced'},
+        {'sync_status': 'synced', 'server_id': existingServerId},
         where: 'id = ?',
         whereArgs: [outingId],
       );
-      final serverId = rows.first['server_id'] as int?;
-      if (serverId != null) {
-        plotsRecovered = await _addMissingVegetationRecords(outingId, serverId);
-      }
+      plotsRecovered = await _addMissingVegetationRecords(outingId, existingServerId);
     } else {
       final serverId = await uploadFieldOuting(outingId);
       uploadedNow = serverId != null;
@@ -614,18 +647,21 @@ class SyncService {
     );
   }
 
-  // Checks server sync-status for this local_id, regardless of local flag
-  Future<bool> _existsOnServer(String localId) async {
+  // Checks server sync-status for this local_id, regardless of local flag.
+  // Returns the server_id if it exists there, null otherwise
+  Future<int?> _existingServerId(String localId) async {
     try {
       final response = await _dio.post(
         '/api/mobile/sync-status',
         data: {'local_ids': [localId]},
       );
       final records = response.data['records'] as Map<String, dynamic>?;
-      return records?[localId]?['synced'] == true;
+      final record = records?[localId] as Map<String, dynamic>?;
+      if (record?['synced'] != true) return null;
+      return record?['server_id'] as int?;
     } catch (e) {
       _logger.w('Could not check server sync status for $localId: $e');
-      return false;
+      return null;
     }
   }
 

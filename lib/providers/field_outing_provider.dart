@@ -68,20 +68,22 @@ class FieldOutingService {
 
   /// Ensures the currently logged-in user exists in the local users table so
   /// that the created_by_user_id FK on field_outings is satisfied.
+  // A real UPDATE, not INSERT OR REPLACE - REPLACE deletes+reinserts the row,
+  // which violates the FK from field_outings.created_by_user_id once any
+  // session already references this user
   Future<void> _upsertCurrentUser(Database database) async {
     final user = ref.read(authProvider).user;
     if (user == null) return;
-    await database.insert(
-      'users',
-      {
-        'id': user.id,
-        'email': user.email,
-        'full_name': user.fullName,
-        'is_active': user.isActive ? 1 : 0,
-        'is_superadmin': user.isSuperadmin ? 1 : 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    final values = {
+      'email': user.email,
+      'full_name': user.fullName,
+      'is_active': user.isActive ? 1 : 0,
+      'is_superadmin': user.isSuperadmin ? 1 : 0,
+    };
+    final updated = await database.update('users', values, where: 'id = ?', whereArgs: [user.id]);
+    if (updated == 0) {
+      await database.insert('users', {'id': user.id, ...values});
+    }
   }
 
   Future<String> saveFieldOuting(FieldOuting session) async {
