@@ -32,7 +32,8 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
     setState(() => _syncingAll = true);
     try {
       final orgId = ref.read(selectedOrgIdProvider);
-      final result = await SyncService.instance.resyncAllOutings(orgId);
+      final userId = ref.read(authProvider).user?.id;
+      final result = await SyncService.instance.resyncAllOutings(orgId, userId: userId);
       ref.invalidate(fieldOutingsProvider(orgId));
       ref.invalidate(pendingPhotoUploadsCountProvider);
       if (!mounted) return;
