@@ -125,6 +125,7 @@ class SyncService {
       'distance_along_transect_m': veg['distance_along_transect_m'],
       'latitude': veg['latitude'],
       'longitude': veg['longitude'],
+      'elevation_m': veg['elevation_m'],
       'canopy_height_m': veg['canopy_height_m'],
       'thatch_height_m': veg['thatch_height_m'],
       'species_observations': jsonDecode(veg['species_observations'] as String),
