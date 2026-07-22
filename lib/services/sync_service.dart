@@ -12,6 +12,7 @@ class ResyncResult {
   final bool uploadFailed;
   final int photosStillPending;
   final int uploadedCount;
+  final int plotsRecovered;
 
   const ResyncResult({
     required this.alreadyOnServer,
@@ -19,6 +20,7 @@ class ResyncResult {
     required this.uploadFailed,
     required this.photosStillPending,
     this.uploadedCount = 1,
+    this.plotsRecovered = 0,
   });
 }
 
@@ -105,6 +107,27 @@ class SyncService {
     );
   }
 
+  Map<String, dynamic> _vegRecordPayload(Map<String, dynamic> veg, String? photoUrl) {
+    return {
+      'local_id': veg['local_id'] as String? ?? '',
+      'transect_id': veg['transect_id'],
+      'plot_number': veg['plot_number'],
+      'plot_id': veg['plot_id'],
+      'habitat_type': veg['habitat_type'],
+      'distance_along_transect_m': veg['distance_along_transect_m'],
+      'latitude': veg['latitude'],
+      'longitude': veg['longitude'],
+      'canopy_height_m': veg['canopy_height_m'],
+      'thatch_height_m': veg['thatch_height_m'],
+      'species_observations': jsonDecode(veg['species_observations'] as String),
+      'photo_url': photoUrl,
+      'notes': veg['notes'],
+      'protocol_code': veg['protocol_code'],
+      'subclass': veg['subclass'],
+      'rtk_point_number': veg['rtk_point_number'],
+    };
+  }
+
   /// Upload a field outing with all child records to the server
   ///
   /// This method bundles a field outing and all its child records
@@ -181,27 +204,9 @@ class SyncService {
           : 'MassMarshVeg';
       payload['protocol_code'] = sessionProtocolCode;
 
-      payload['vegetation_records'] = vegRecords.map((veg) {
-        final localId = veg['local_id'] as String? ?? '';
-        return {
-          'local_id': localId,
-          'transect_id': veg['transect_id'],
-          'plot_number': veg['plot_number'],
-          'plot_id': veg['plot_id'],
-          'habitat_type': veg['habitat_type'],
-          'distance_along_transect_m': veg['distance_along_transect_m'],
-          'latitude': veg['latitude'],
-          'longitude': veg['longitude'],
-          'canopy_height_m': veg['canopy_height_m'],
-          'thatch_height_m': veg['thatch_height_m'],
-          'species_observations': jsonDecode(veg['species_observations'] as String),
-          'photo_url': photoUrls[localId],
-          'notes': veg['notes'],
-          'protocol_code': veg['protocol_code'],
-          'subclass': veg['subclass'],
-          'rtk_point_number': veg['rtk_point_number'],
-        };
-      }).toList();
+      payload['vegetation_records'] = vegRecords
+          .map((veg) => _vegRecordPayload(veg, photoUrls[veg['local_id'] as String? ?? '']))
+          .toList();
 
       // Fetch and add hydrology records
       final hydroRecords = await db.query(
@@ -481,7 +486,7 @@ class SyncService {
     final db = await _db.database;
     final rows = await db.query(
       'field_outings',
-      columns: ['is_draft', 'local_id'],
+      columns: ['is_draft', 'local_id', 'server_id'],
       where: 'id = ?',
       whereArgs: [outingId],
       limit: 1,
@@ -494,6 +499,7 @@ class SyncService {
     final alreadyOnServer = localId != null && await _existsOnServer(localId);
     var uploadedNow = false;
     var uploadFailed = false;
+    var plotsRecovered = 0;
 
     if (alreadyOnServer) {
       await db.update(
@@ -502,6 +508,10 @@ class SyncService {
         where: 'id = ?',
         whereArgs: [outingId],
       );
+      final serverId = rows.first['server_id'] as int?;
+      if (serverId != null) {
+        plotsRecovered = await _addMissingVegetationRecords(outingId, serverId);
+      }
     } else {
       final serverId = await uploadFieldOuting(outingId);
       uploadedNow = serverId != null;
@@ -516,7 +526,62 @@ class SyncService {
       uploadedNow: uploadedNow,
       uploadFailed: uploadFailed,
       photosStillPending: photosStillPending,
+      plotsRecovered: plotsRecovered,
     );
+  }
+
+  // Plots that never made it into a session that already exists server-side
+  // (e.g. the outing uploaded before local inserts finished) have a local_id
+  // but no server_id, even though the outing itself does. Attaches them now.
+  Future<int> _addMissingVegetationRecords(int outingId, int serverId) async {
+    final db = await _db.database;
+    final orphaned = await db.query(
+      'vegetation_records',
+      where: 'outing_id = ? AND server_id IS NULL',
+      whereArgs: [outingId],
+    );
+    if (orphaned.isEmpty) return 0;
+
+    final photoUrls = <String, String>{};
+    for (final veg in orphaned) {
+      final localPath = veg['photo_local_path'] as String?;
+      final localId = veg['local_id'] as String? ?? '';
+      if (localPath != null && localPath.isNotEmpty) {
+        final (url, _) = await _uploadPhoto(localPath);
+        if (url != null) photoUrls[localId] = url;
+      }
+    }
+
+    try {
+      final response = await _dio.post(
+        '/api/mobile/field-outings/$serverId/vegetation-records',
+        data: {
+          'protocol_code': orphaned.first['protocol_code'],
+          'vegetation_records': orphaned
+              .map((veg) => _vegRecordPayload(veg, photoUrls[veg['local_id'] as String? ?? '']))
+              .toList(),
+        },
+      );
+      if (response.statusCode != 200 || response.data['success'] != true) return 0;
+
+      final ids = (response.data['child_records']['vegetation'] as Map<String, dynamic>);
+      for (final entry in ids.entries) {
+        await db.update(
+          'vegetation_records',
+          {
+            'server_id': entry.value,
+            'sync_status': 'synced',
+            if (photoUrls.containsKey(entry.key)) 'photo_filename': photoUrls[entry.key],
+          },
+          where: 'local_id = ?',
+          whereArgs: [entry.key],
+        );
+      }
+      return ids.length;
+    } catch (e) {
+      _logger.w('Failed to attach missing plots for outing $outingId: $e');
+      return 0;
+    }
   }
 
   /// Runs resyncOuting across every non-draft session in an org
@@ -531,11 +596,13 @@ class SyncService {
     var uploadedCount = 0;
     var failedCount = 0;
     var photosStillPending = 0;
+    var plotsRecovered = 0;
     for (final row in rows) {
       final result = await resyncOuting(row['id'] as int);
       if (result.uploadedNow) uploadedCount++;
       if (result.uploadFailed) failedCount++;
       photosStillPending += result.photosStillPending;
+      plotsRecovered += result.plotsRecovered;
     }
     return ResyncResult(
       alreadyOnServer: false,
@@ -543,6 +610,7 @@ class SyncService {
       uploadFailed: failedCount > 0,
       photosStillPending: photosStillPending,
       uploadedCount: uploadedCount,
+      plotsRecovered: plotsRecovered,
     );
   }
 

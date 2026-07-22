@@ -78,9 +78,12 @@ class _OutingDetailsScreenState extends ConsumerState<OutingDetailsScreen> {
     if (result.uploadFailed) {
       return 'Could not upload session, check your connection and try again';
     }
-    final suffix = result.photosStillPending > 0
+    var suffix = result.photosStillPending > 0
         ? ', ${result.photosStillPending} photo(s) still uploading'
         : '';
+    if (result.plotsRecovered > 0) {
+      suffix = ', recovered ${result.plotsRecovered} missing plot(s)$suffix';
+    }
     if (result.uploadedNow) return 'Session uploaded$suffix';
     if (result.alreadyOnServer) return 'Already up to date$suffix';
     return 'Nothing to sync$suffix';

@@ -35,9 +35,12 @@ class _OutingsScreenState extends ConsumerState<OutingsScreen> {
       final result = await SyncService.instance.resyncAllOutings(orgId);
       ref.invalidate(fieldOutingsProvider(orgId));
       if (!mounted) return;
-      final suffix = result.photosStillPending > 0
+      var suffix = result.photosStillPending > 0
           ? ', ${result.photosStillPending} photo(s) still uploading'
           : '';
+      if (result.plotsRecovered > 0) {
+        suffix = ', recovered ${result.plotsRecovered} missing plot(s)$suffix';
+      }
       final message = result.uploadedCount > 0
           ? 'Uploaded ${result.uploadedCount} session(s)$suffix'
           : 'Everything already up to date$suffix';
