@@ -10,10 +10,10 @@ class FieldOutingDao {
 
   /// Create a new field outing (locally with local_id)
   /// Returns the local_id UUID for offline records
-  Future<String> createFieldOuting(FieldOuting outing) async {
+  Future<String> createFieldOuting(FieldOuting outing, {DatabaseExecutor? executor}) async {
     final localId = outing.localId ?? _generateUuid();
 
-    await db.insert(
+    await (executor ?? db).insert(
       'field_outings',
       {
         'local_id': localId,

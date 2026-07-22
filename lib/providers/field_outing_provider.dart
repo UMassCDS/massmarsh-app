@@ -126,33 +126,36 @@ class FieldOutingService {
     final db = await ref.read(appDatabaseProvider.future);
     final database = await db.database;
     await _upsertCurrentUser(database);
-    final localId = await db.fieldOutingDao.createFieldOuting(session);
-    _refreshNotifier.increment();
-    final result = await database.query(
-      'field_outings',
-      columns: ['id'],
-      where: 'local_id = ?',
-      whereArgs: [localId],
-      limit: 1,
-    );
 
-    if (result.isNotEmpty) {
-      final dbId = result.first['id'] as int;
-
+    // The outing row and its children must become visible together, not one
+    // at a time, or a concurrent sync (connectivity change, background task)
+    // can upload the outing before its plots exist and mark it synced anyway
+    String localId = '';
+    int? dbId;
+    await database.transaction((txn) async {
+      localId = await db.fieldOutingDao.createFieldOuting(session, executor: txn);
+      final result = await txn.query(
+        'field_outings',
+        columns: ['id'],
+        where: 'local_id = ?',
+        whereArgs: [localId],
+        limit: 1,
+      );
+      if (result.isEmpty) return;
+      dbId = result.first['id'] as int;
       for (final record in childRecords) {
-        await database.insert(childTable, {
-          ...record,
-          'outing_id': dbId,
-        });
+        await txn.insert(childTable, {...record, 'outing_id': dbId});
       }
+    });
 
-      if (!session.isDraft) {
-        SyncService.instance.uploadFieldOuting(dbId).then((serverId) {
-          if (serverId != null) {
-            _refreshNotifier.increment();
-          }
-        }).catchError((_) {});
-      }
+    _refreshNotifier.increment();
+
+    if (dbId != null && !session.isDraft) {
+      SyncService.instance.uploadFieldOuting(dbId!).then((serverId) {
+        if (serverId != null) {
+          _refreshNotifier.increment();
+        }
+      }).catchError((_) {});
     }
 
     return localId;
