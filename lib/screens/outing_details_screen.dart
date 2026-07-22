@@ -330,30 +330,41 @@ class _PhotoStatusBadge extends StatelessWidget {
     } else if (error != null && error!.isNotEmpty) {
       color = Colors.red.shade700;
       bg = Colors.red.withValues(alpha: 0.1);
-      label = 'Photo upload failed, will retry';
+      label = 'Photo not uploaded';
     } else {
       color = Colors.amber.shade800;
       bg = Colors.amber.withValues(alpha: 0.12);
       label = 'Photo pending upload';
     }
 
-    final badge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(label,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-              )),
-    );
+    final hasReason = error != null && error!.isNotEmpty;
 
-    if (error != null && error!.isNotEmpty) {
-      return Tooltip(message: error!, child: badge);
-    }
-    return badge;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  )),
+        ),
+        if (hasReason) ...[
+          const SizedBox(height: 4),
+          Text(
+            error!,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

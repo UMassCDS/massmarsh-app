@@ -698,16 +698,48 @@ class SyncService {
       if (response.statusCode == 200 && response.data['success'] == true) {
         return (response.data['url'] as String?, null);
       }
-      return (null, 'Upload rejected: ${response.statusCode}');
+      return (null, 'Server rejected the upload (${response.statusCode})');
     } on DioException catch (e) {
-      final detail = e.response?.data is Map ? e.response?.data['detail'] : null;
-      final message = detail?.toString() ?? e.message ?? 'Network error';
-      _logger.w('Photo upload failed for $localPath: $message');
+      final message = _friendlyDioError(e);
+      _logger.w('Photo upload failed for $localPath: $message (${e.type}) ${e.message}');
       return (null, message);
     } catch (e) {
       _logger.w('Photo upload failed for $localPath: $e');
-      return (null, e.toString());
+      return (null, 'Unexpected error while uploading');
     }
+  }
+
+  /// Turns a Dio failure into something a field user can act on
+  String _friendlyDioError(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionError:
+        return 'No connection to the server';
+      case DioExceptionType.connectionTimeout:
+        return 'Could not reach the server, check your connection';
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'Timed out on a weak connection, will retry';
+      case DioExceptionType.badCertificate:
+        return 'Secure connection failed';
+      case DioExceptionType.cancel:
+        return 'Upload was cancelled';
+      case DioExceptionType.badResponse:
+        return _friendlyStatusError(e);
+      case DioExceptionType.unknown:
+        return 'Could not upload, will retry';
+    }
+  }
+
+  String _friendlyStatusError(DioException e) {
+    final status = e.response?.statusCode;
+    // The backend sends a usable reason for 400/503, prefer it over a guess
+    final detail = e.response?.data is Map ? e.response?.data['detail']?.toString() : null;
+    if (status == 401 || status == 403) return 'Signed out, please sign in again';
+    if (status == 413) return 'Photo is too large to upload';
+    if (status == 400) return detail ?? 'Server rejected the photo';
+    if (status == 503) return 'Photo storage is unavailable, will retry';
+    if (status != null && status >= 500) return 'Server error, will retry';
+    return detail ?? 'Upload failed (${status ?? 'no response'})';
   }
 
   Future<MultipartFile?> _multipartFileFromPath(String path) async {
