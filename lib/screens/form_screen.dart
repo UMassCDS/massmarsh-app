@@ -1740,7 +1740,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Field session saved successfully!'),
+            content: Text('Session saved, uploading to server...'),
             duration: Duration(seconds: 2),
           ),
         );
