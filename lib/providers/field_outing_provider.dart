@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
+import '../providers/org_provider.dart';
 import '../services/sync_service.dart';
 
 // Provide access to the database
@@ -233,13 +234,25 @@ class FieldOutingService {
     final db = await ref.read(appDatabaseProvider.future);
     final database = await db.database;
     final userId = ref.read(authProvider).user?.id;
+    final orgId = ref.read(selectedOrgProvider)?.id;
 
-    // Scoped like the sessions list, so a shared device doesn't mix drafts
-    // between accounts (or orgs) that happen to share the same local DB
+    // Scoped to the same org and account combination the sessions list uses,
+    // so a shared device never shows one crew another crew's drafts
+    final conditions = <String>['is_draft = ?'];
+    final args = <Object?>[1];
+    if (userId != null) {
+      conditions.add('created_by_user_id = ?');
+      args.add(userId);
+    }
+    if (orgId != null) {
+      conditions.add('org_id = ?');
+      args.add(orgId);
+    }
+
     final result = await database.query(
       'field_outings',
-      where: userId != null ? 'is_draft = ? AND created_by_user_id = ?' : 'is_draft = ?',
-      whereArgs: userId != null ? [1, userId] : [1],
+      where: conditions.join(' AND '),
+      whereArgs: args,
       orderBy: 'updated_at DESC',
     );
 
