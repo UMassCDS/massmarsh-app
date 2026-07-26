@@ -4,16 +4,25 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
+import '../utils/database_export_helper.dart';
+import '../utils/snackbar_utils.dart';
 import 'login_screen.dart';
 
 final _packageInfoProvider =
     FutureProvider<PackageInfo>((ref) => PackageInfo.fromPlatform());
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _exporting = false;
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
     final user = ref.watch(authProvider).user;
     final colorScheme = Theme.of(context).colorScheme;
@@ -233,6 +242,43 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 28),
 
+          // ── Data section ───────────────────────────────────────────────
+          _SectionHeader(label: 'Data'),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: _exporting
+                    ? Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                      )
+                    : Icon(Icons.archive_outlined,
+                        size: 20, color: colorScheme.onPrimaryContainer),
+              ),
+              title: Text('Export all data',
+                  style: textTheme.bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                'Database, photos and a summary of everything on this device',
+                style: textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurface.withValues(alpha: 0.55)),
+              ),
+              onTap: _exporting ? null : _exportEverything,
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
           // ── About section ──────────────────────────────────────────────
           _SectionHeader(label: 'About'),
           const SizedBox(height: 8),
@@ -272,6 +318,77 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _exportEverything() async {
+    setState(() => _exporting = true);
+    try {
+      final summary = await DatabaseExportHelper.inspect();
+      if (!mounted) return;
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Found on this device'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SummaryRow(
+                    label: 'Sessions', value: '${summary.outings.length}'),
+                _SummaryRow(label: 'Drafts', value: '${summary.draftCount}'),
+                _SummaryRow(
+                    label: 'Plot records',
+                    value: '${summary.totalRecordCount}'),
+                _SummaryRow(
+                    label: 'Photos', value: '${summary.photoFileCount}'),
+                _SummaryRow(
+                    label: 'Unlinked photos',
+                    value: '${summary.photoOrphanCount}'),
+                const SizedBox(height: 12),
+                Text(
+                  'Counts include every account and organisation on this '
+                  'device, not just the one signed in.',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(ctx)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.6),
+                      ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Export'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) return;
+
+      final bundle = await DatabaseExportHelper.buildBundle(summary);
+      await DatabaseExportHelper.share(bundle);
+    } catch (e) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          'Export failed: $e',
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 5),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   String _initials(String fullName) {
@@ -327,6 +444,30 @@ class _InfoTile extends StatelessWidget {
       trailing: Text(value,
           style:
               textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SummaryRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: textTheme.bodyMedium),
+          Text(value,
+              style: textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+        ],
+      ),
     );
   }
 }

@@ -326,7 +326,8 @@ class AppDatabase {
 
   /// Close database
   Future<void> close() async {
-    _database?.close();
+    // Awaited so the WAL is checkpointed before anyone copies the file
+    await _database?.close();
     _database = null;
   }
 
