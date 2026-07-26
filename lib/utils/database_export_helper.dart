@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../database/app_database.dart';
 
@@ -62,11 +63,39 @@ class DatabaseExportHelper {
     return Directory(p.join(docsDir.path, 'photos'));
   }
 
+  // Best-effort per table: a recovery export must still run against a database
+  // that is missing or has corrupted one of them
+  static Future<Map<String, int>> _tableCounts(Database db) async {
+    const tables = [
+      'users',
+      'organizations',
+      'field_outings',
+      'vegetation_records',
+      'hydrology_records',
+      'elevation_records',
+      'sync_queue',
+      'pending_uploads',
+    ];
+
+    final counts = <String, int>{};
+    for (final table in tables) {
+      try {
+        counts[table] = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM $table'),
+            ) ??
+            0;
+      } catch (_) {
+        counts[table] = -1;
+      }
+    }
+    return counts;
+  }
+
   /// Deliberately unscoped by user and org - this is the view that shows rows
   /// the normal screens filter out.
   static Future<RecoverySummary> inspect() async {
     final db = await AppDatabase.instance.database;
-    final tableCounts = await AppDatabase.instance.getDatabaseStats();
+    final tableCounts = await _tableCounts(db);
 
     final rows = await db.rawQuery('''
       SELECT o.id, o.local_id, o.org_id, o.created_by_user_id, o.site_name,
