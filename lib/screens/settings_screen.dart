@@ -4,6 +4,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/sync_service.dart';
 import '../utils/database_export_helper.dart';
 import '../utils/snackbar_utils.dart';
 import 'login_screen.dart';
@@ -20,6 +21,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _exporting = false;
+  bool _uploading = false;
+  double _uploadProgress = 0;
+
+  bool get _busy => _exporting || _uploading;
 
   @override
   Widget build(BuildContext context) {
@@ -246,34 +251,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SectionHeader(label: 'Data'),
           const SizedBox(height: 8),
           Card(
-            child: ListTile(
-              leading: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(9),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.cloud_upload_outlined,
+                    busy: _uploading,
+                  ),
+                  title: Text('Send all data to server',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    _uploading
+                        ? 'Uploading… ${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                        : 'Upload this device\'s data so an admin can '
+                            'download it remotely',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _busy ? null : _sendToServer,
                 ),
-                child: _exporting
-                    ? Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: colorScheme.onPrimaryContainer,
-                        ),
-                      )
-                    : Icon(Icons.archive_outlined,
-                        size: 20, color: colorScheme.onPrimaryContainer),
-              ),
-              title: Text('Export all data',
-                  style: textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                'Database, photos and a summary of everything on this device',
-                style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.55)),
-              ),
-              onTap: _exporting ? null : _exportEverything,
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.archive_outlined,
+                    busy: _exporting,
+                  ),
+                  title: Text('Export all data',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    'Save or share database, photos and a summary',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _busy ? null : _exportEverything,
+                ),
+              ],
             ),
           ),
 
@@ -320,60 +339,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  Future<bool?> _confirmSummary(RecoverySummary summary, String action) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Found on this device'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SummaryRow(
+                  label: 'Sessions', value: '${summary.outings.length}'),
+              _SummaryRow(label: 'Drafts', value: '${summary.draftCount}'),
+              _SummaryRow(
+                  label: 'Plot records', value: '${summary.totalRecordCount}'),
+              _SummaryRow(label: 'Photos', value: '${summary.photoFileCount}'),
+              _SummaryRow(
+                  label: 'Unlinked photos',
+                  value: '${summary.photoOrphanCount}'),
+              const SizedBox(height: 12),
+              Text(
+                'Counts include every account and organisation on this '
+                'device, not just the one signed in.',
+                style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(ctx)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _exportEverything() async {
     setState(() => _exporting = true);
     try {
       final summary = await DatabaseExportHelper.inspect();
       if (!mounted) return;
 
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Found on this device'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _SummaryRow(
-                    label: 'Sessions', value: '${summary.outings.length}'),
-                _SummaryRow(label: 'Drafts', value: '${summary.draftCount}'),
-                _SummaryRow(
-                    label: 'Plot records',
-                    value: '${summary.totalRecordCount}'),
-                _SummaryRow(
-                    label: 'Photos', value: '${summary.photoFileCount}'),
-                _SummaryRow(
-                    label: 'Unlinked photos',
-                    value: '${summary.photoOrphanCount}'),
-                const SizedBox(height: 12),
-                Text(
-                  'Counts include every account and organisation on this '
-                  'device, not just the one signed in.',
-                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(ctx)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.6),
-                      ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Export'),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed != true) return;
+      if (await _confirmSummary(summary, 'Export') != true) return;
 
       final bundle = await DatabaseExportHelper.buildBundle(summary);
       await DatabaseExportHelper.share(bundle);
@@ -388,6 +407,85 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _sendToServer() async {
+    setState(() => _uploading = true);
+    try {
+      final summary = await DatabaseExportHelper.inspect();
+      if (!mounted) return;
+
+      if (await _confirmSummary(summary, 'Continue') != true) return;
+      if (!mounted) return;
+
+      final includePhotos = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Include photos?'),
+          content: Text(
+            'Photos are ${(summary.photoBytes / (1024 * 1024)).toStringAsFixed(0)} MB. '
+            'Sending the data on its own is much faster on a weak connection, '
+            'and is enough to tell whether the records survived.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Data only'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Data + photos'),
+            ),
+          ],
+        ),
+      );
+      if (includePhotos == null) return;
+
+      final bundle = await DatabaseExportHelper.buildBundle(
+        summary,
+        includePhotos: includePhotos,
+      );
+
+      final result = await SyncService.instance.uploadRecoveryBundle(
+        bundle.path,
+        onProgress: (sent, total) {
+          if (!mounted || total <= 0) return;
+          setState(() => _uploadProgress = sent / total);
+        },
+      );
+
+      if (!mounted) return;
+      if (result.success) {
+        showAppSnackBar(
+          context,
+          'Sent to server as ${result.name}',
+          duration: const Duration(seconds: 6),
+        );
+      } else {
+        showAppSnackBar(
+          context,
+          'Upload failed: ${result.error}. Use "Export all data" instead.',
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 8),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          'Upload failed: $e',
+          backgroundColor: Theme.of(context).colorScheme.error,
+          duration: const Duration(seconds: 5),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _uploading = false;
+          _uploadProgress = 0;
+        });
+      }
     }
   }
 
@@ -444,6 +542,35 @@ class _InfoTile extends StatelessWidget {
       trailing: Text(value,
           style:
               textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500)),
+    );
+  }
+}
+
+class _DataTileIcon extends StatelessWidget {
+  final IconData icon;
+  final bool busy;
+
+  const _DataTileIcon({required this.icon, required this.busy});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: busy
+          ? Padding(
+              padding: const EdgeInsets.all(8),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colorScheme.onPrimaryContainer,
+              ),
+            )
+          : Icon(icon, size: 20, color: colorScheme.onPrimaryContainer),
     );
   }
 }

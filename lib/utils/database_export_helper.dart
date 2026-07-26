@@ -197,8 +197,13 @@ class DatabaseExportHelper {
     return buffer.toString();
   }
 
-  /// Bundles the database, every photo and a plain-text report into one zip.
-  static Future<File> buildBundle(RecoverySummary summary) async {
+  /// Bundles the database, a plain-text report and optionally every photo.
+  /// Photos are excluded for uploads over a field hotspot, where the database
+  /// alone answers whether the data survived.
+  static Future<File> buildBundle(
+    RecoverySummary summary, {
+    bool includePhotos = true,
+  }) async {
     final docsDir = await getApplicationDocumentsDirectory();
     final stamp = DateTime.now()
         .toIso8601String()
@@ -216,7 +221,8 @@ class DatabaseExportHelper {
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
 
-      final zipPath = p.join(docsDir.path, 'saltmarsh-recovery-$stamp.zip');
+      final suffix = includePhotos ? '' : '-db-only';
+      final zipPath = p.join(docsDir.path, 'saltmarsh-recovery-$stamp$suffix.zip');
       final zipFile = File(zipPath);
       if (await zipFile.exists()) await zipFile.delete();
 
@@ -231,7 +237,7 @@ class DatabaseExportHelper {
         // Zipped straight from the live folder so a second full-size copy of
         // every photo is never written to a tablet that may be near full
         final photosDir = await _photosDirectory();
-        if (await photosDir.exists()) {
+        if (includePhotos && await photosDir.exists()) {
           await encoder.addDirectory(photosDir, includeDirName: true);
         }
       } finally {

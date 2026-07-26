@@ -770,6 +770,67 @@ class SyncService {
     }
   }
 
+  /// Sends a recovery bundle to the server so an admin can pull the device's
+  /// data without physical access to the tablet.
+  Future<({bool success, String? name, String? error})> uploadRecoveryBundle(
+    String bundlePath, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    if (_authToken == null) {
+      return (success: false, name: null, error: 'Sign in before uploading');
+    }
+
+    try {
+      final file = await _multipartFileFromPath(bundlePath);
+      if (file == null) {
+        return (success: false, name: null, error: 'Could not read the bundle');
+      }
+
+      final formData = FormData.fromMap({'file': file});
+
+      // Same dance as _uploadPhoto: the auth interceptor forces JSON, which
+      // would clobber Dio's multipart boundary
+      final originalContentType = _dio.options.headers['Content-Type'];
+      _dio.options.headers.remove('Content-Type');
+
+      try {
+        final response = await _dio.post(
+          '/api/v1/recovery/bundles',
+          data: formData,
+          onSendProgress: onProgress,
+          options: Options(
+            contentType: 'multipart/form-data',
+            // A day of plots and photos over a field hotspot is not a 60s job
+            sendTimeout: const Duration(minutes: 30),
+            receiveTimeout: const Duration(minutes: 10),
+          ),
+        );
+
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          return (
+            success: true,
+            name: response.data['name'] as String?,
+            error: null,
+          );
+        }
+        return (
+          success: false,
+          name: null,
+          error: 'Server rejected the upload (${response.statusCode})',
+        );
+      } finally {
+        _dio.options.headers['Content-Type'] = originalContentType;
+      }
+    } on DioException catch (e) {
+      final message = _friendlyDioError(e);
+      _logger.w('Recovery bundle upload failed: $message (${e.type})');
+      return (success: false, name: null, error: message);
+    } catch (e) {
+      _logger.w('Recovery bundle upload failed: $e');
+      return (success: false, name: null, error: 'Unexpected error: $e');
+    }
+  }
+
   /// Set authentication token for API requests
   void setAuthToken(String token) {
     _authToken = token;
