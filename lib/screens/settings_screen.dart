@@ -377,12 +377,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       final summary = await DatabaseExportHelper.inspect();
       final photos = await DatabaseExportHelper.photosForDay(day);
-      final alreadySent = await DatabaseExportHelper.sentPhotoNames();
-      final pendingPhotos =
-          photos.where((f) => !alreadySent.contains(p.basename(f.path))).toList();
       if (!mounted) return;
 
-      final withPhotos = await _askScope(day, summary, photos, pendingPhotos);
+      final withPhotos = await _askScope(day, summary, photos);
       if (withPhotos == null) return;
 
       setState(() => _phase = 'Sending data');
@@ -401,14 +398,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
 
-      if (!withPhotos || pendingPhotos.isEmpty) {
-        _report(pendingPhotos.isEmpty && withPhotos
-            ? 'Data sent. All photos were already uploaded.'
-            : 'Data sent.');
+      if (!withPhotos || photos.isEmpty) {
+        _report('Data sent.');
         return;
       }
 
-      final sent = await _uploadPhotoBatches(pendingPhotos);
+      final sent = await _uploadPhotoBatches(photos);
       _report(sent.failure == null
           ? 'Data sent, plus ${sent.count} photo(s).'
           : 'Data sent, plus ${sent.count} photo(s), then stopped: '
@@ -432,16 +427,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     DateTime? day,
     RecoverySummary summary,
     List<File> photos,
-    List<File> pending,
-  ) {
+  ) async {
     final scope = day == null
         ? 'everything on this device'
         : 'the database plus photos from '
             '${day.day}/${day.month}/${day.year}';
-    final mb = pending.isEmpty
-        ? 0
-        : pending.length * 4; // rough, avoids stat-ing every file up front
 
+    var bytes = 0;
+    for (final f in photos) {
+      bytes += await f.length();
+    }
+    final size = bytes >= 1024 * 1024 * 1024
+        ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
+        : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+
+    final photoLine = photos.isEmpty
+        ? 'No photos found on this device${day == null ? '' : ' for that day'}.'
+        : '${photos.length} photo(s), $size.';
+
+    if (!mounted) return null;
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -449,7 +453,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: Text(
           'This sends $scope so an admin can review it. Nothing on this '
           'device is changed or deleted.\n\n'
-          '${pending.length} photo(s) still to send, roughly $mb MB. '
+          '$photoLine\n\n'
           'Photos go in small batches, so you can stop and start again '
           'without losing progress.',
         ),
