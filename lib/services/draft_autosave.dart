@@ -1,10 +1,7 @@
 import 'dart:async';
 
-/// Coalesces rapid form edits into one write, and guarantees a write happens
-/// before the app can be killed.
-///
-/// The contract is that at most one edit can ever be lost: every change either
-/// lands within [idleDelay] or is forced out by [flush] on a lifecycle event.
+// At most one edit can ever be lost: it lands within idleDelay or is
+// forced out by flush() on a lifecycle event
 class DraftAutosave {
   final Future<void> Function() save;
   final Duration idleDelay;
@@ -21,7 +18,6 @@ class DraftAutosave {
 
   bool get hasPendingWork => _dirty || _timer != null || _inFlight != null;
 
-  /// Called on every field edit. Cheap, and safe to call in a hot path.
   void schedule() {
     if (_disposed) return;
     _dirty = true;
@@ -32,8 +28,7 @@ class DraftAutosave {
     });
   }
 
-  /// Writes immediately. Awaits any save already running so the last edit is
-  /// never overtaken by an earlier one.
+  // Awaits any save already running, so the last edit is never overtaken
   Future<void> flush() async {
     _timer?.cancel();
     _timer = null;
@@ -64,8 +59,8 @@ class DraftAutosave {
     }
   }
 
-  /// Stops scheduling without writing. The caller is expected to have already
-  /// captured the pending state, since a widget being torn down cannot await.
+  // Does not write - the caller must capture state first, since a widget
+  // being torn down cannot await
   void cancel() {
     _timer?.cancel();
     _timer = null;

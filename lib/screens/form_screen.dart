@@ -95,14 +95,11 @@ class _FormScreenState extends ConsumerState<FormScreen>
   // in place). Starts as the opened draft's id, or null for a new form.
   int? _currentDraftId;
 
-  // Hydrology and elevation sessions hold a single child row; keeping its id
-  // for the life of the form lets autosave update rather than re-insert it
+  // Held for the life of the form so autosave updates one hydrology/elevation row
   final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
 
   late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
 
-  /// Every edit routes through here. The form is never the only copy of an
-  /// entry for longer than the autosave delay.
   void _onEdited() {
     if (!_isDirty) return;
     _autosave.schedule();
@@ -482,8 +479,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
 
-    // Captured synchronously, before the controllers below are torn down, then
-    // written without them. dispose cannot await, so the write is detached.
+    // dispose cannot await, so the write happens detached after this returns
     final pending = _autosave.hasPendingWork ? _captureDraft() : null;
     _autosave.cancel();
     if (pending != null) {
@@ -1462,8 +1458,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
     }
   }
 
-  /// Reads every controller synchronously. Must not await before it returns,
-  /// so it stays valid even when called while the widget is being torn down.
+  // Must never await, so it stays valid even mid-teardown
   ({FieldOuting outing, String? childTable, List<Map<String, dynamic>> rows})
       _captureDraft() {
     final startTime = _startTimeController.text.isNotEmpty

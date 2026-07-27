@@ -46,9 +46,8 @@ class ElevationFields {
   });
 }
 
-/// The single place that turns in-progress form state into database rows.
-/// Draft saves, final submission and autosave all go through here so they can
-/// never drift apart.
+// Draft saves, final submission and autosave all build rows through here,
+// so they can never drift apart
 class DraftSnapshot {
   final String monitoringType;
   final String protocolCode;
@@ -56,8 +55,7 @@ class DraftSnapshot {
   final HydrologyFields? hydrology;
   final ElevationFields? elevation;
 
-  /// Held by the form for the life of the session so repeated autosaves update
-  /// the same row rather than inserting a new one each time.
+  // Held for the life of the form so repeated autosaves update one row
   final String singleRecordLocalId;
 
   const DraftSnapshot({

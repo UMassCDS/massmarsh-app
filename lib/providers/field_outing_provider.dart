@@ -179,11 +179,8 @@ class FieldOutingService {
     return result.first['id'] as int?;
   }
 
-  /// Updates an existing draft in place, matching child rows on local_id.
-  ///
-  /// Deliberately not delete-then-reinsert: that reassigns row ids and wipes
-  /// server_id, which would orphan anything already uploaded and make the
-  /// server treat a re-upload as a new record.
+  // Matches child rows on local_id rather than delete-then-reinsert, which
+  // would wipe server_id and orphan anything already uploaded
   Future<void> updateDraftWithChildren(
     int draftId,
     FieldOuting session,

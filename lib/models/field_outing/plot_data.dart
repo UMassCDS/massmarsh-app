@@ -3,8 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
-/// Mutable while a plot is being filled in. Distinct from the persisted
-/// SpeciesObservation in vegetation_record.dart, which is immutable.
+// Mutable, unlike the persisted SpeciesObservation in vegetation_record.dart
 class PlotSpeciesEntry {
   String speciesCode;
   int percentageCover;
@@ -16,8 +15,7 @@ class PlotSpeciesEntry {
 }
 
 class PlotData {
-  /// Assigned once and never regenerated. The server dedupes uploads on
-  /// (outing_id, local_id), so a changing id would create duplicate records.
+  // Assigned once, never regenerated - the server dedupes on this
   final String localId;
   String transectId;
   int plotNumber;
