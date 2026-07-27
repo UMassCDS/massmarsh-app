@@ -457,7 +457,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final what = day == null
         ? 'everything on this device'
         : 'the database plus photos from '
-            '${day.day}/${day.month}/${day.year}';
+            '${day.month}/${day.day}/${day.year}';
 
     var totalBytes = 0;
     for (final f in photos) {
