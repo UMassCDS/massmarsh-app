@@ -438,9 +438,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  static String _humanSize(int bytes) => bytes >= 1024 * 1024 * 1024
-      ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
-      : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+  static String _humanSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
 
   Future<bool?> _askScope(
     DateTime? day,
