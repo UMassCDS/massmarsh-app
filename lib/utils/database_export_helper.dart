@@ -197,10 +197,20 @@ class DatabaseExportHelper {
     return buffer.toString();
   }
 
+  /// A day gets its own name (e.g. "2026-07-24"); everything else is
+  /// explicitly "ALL", never left to be inferred from a timestamp.
+  static String scopeLabel(DateTime? day) {
+    if (day == null) return 'ALL';
+    final y = day.year.toString().padLeft(4, '0');
+    final m = day.month.toString().padLeft(2, '0');
+    final d = day.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
   /// Bundles the database and a plain-text report. Never photos: those go
   /// separately in batches, because one large upload is what the server cuts
   /// off partway through.
-  static Future<File> buildBundle(RecoverySummary summary) async {
+  static Future<File> buildBundle(RecoverySummary summary, String scope) async {
     final docsDir = await getApplicationDocumentsDirectory();
     final stamp = DateTime.now()
         .toIso8601String()
@@ -218,7 +228,8 @@ class DatabaseExportHelper {
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
 
-      final zipPath = p.join(docsDir.path, 'saltmarsh-database-$stamp.zip');
+      final zipPath =
+          p.join(docsDir.path, 'saltmarsh-database-$scope-$stamp.zip');
       final zipFile = File(zipPath);
       if (await zipFile.exists()) await zipFile.delete();
 

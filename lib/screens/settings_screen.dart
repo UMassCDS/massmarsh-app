@@ -374,9 +374,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       await WakelockPlus.enable();
 
-      final scope = day == null
-          ? 'all'
-          : '${day.year}-${day.month}-${day.day}';
+      final scope = DatabaseExportHelper.scopeLabel(day);
 
       final summary = await DatabaseExportHelper.inspect();
       final photos = await DatabaseExportHelper.photosForDay(day);
@@ -390,7 +388,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (withPhotos == null) return;
 
       setState(() => _phase = 'Sending data');
-      final bundle = await DatabaseExportHelper.buildBundle(summary);
+      final bundle = await DatabaseExportHelper.buildBundle(summary, scope);
       final dataResult = await SyncService.instance.uploadRecoveryBundle(
         bundle.path,
         onProgress: (sent, total) {
