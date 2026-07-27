@@ -91,8 +91,7 @@ class DatabaseExportHelper {
     return counts;
   }
 
-  /// Deliberately unscoped by user and org - this is the view that shows rows
-  /// the normal screens filter out.
+  // Deliberately unscoped by user and org, unlike every other query in the app
   static Future<RecoverySummary> inspect() async {
     final db = await AppDatabase.instance.database;
     final tableCounts = await _tableCounts(db);
@@ -197,8 +196,7 @@ class DatabaseExportHelper {
     return buffer.toString();
   }
 
-  /// A day gets its own name (e.g. "2026-07-24"); everything else is
-  /// explicitly "ALL", never left to be inferred from a timestamp.
+  // "ALL" rather than a date, so scope is never left to be inferred
   static String scopeLabel(DateTime? day) {
     if (day == null) return 'ALL';
     final y = day.year.toString().padLeft(4, '0');
@@ -207,19 +205,15 @@ class DatabaseExportHelper {
     return '$y-$m-$d';
   }
 
-  // Time only, not a second date: the export day is already obvious from
-  // when the file shows up, so this only needs to tell two same-day runs
-  // apart. "for" marks the scope, "at" marks the moment, so the two never
-  // read as a pair of dates.
+  // Time only, not a date, so "for X at Y" never reads as two dates
   static String _exportedAtLabel() {
     final now = DateTime.now();
     String two(int n) => n.toString().padLeft(2, '0');
     return '${two(now.hour)}${two(now.minute)}${two(now.second)}';
   }
 
-  /// Bundles the database and a plain-text report. Never photos: those go
-  /// separately in batches, because one large upload is what the server cuts
-  /// off partway through.
+  // Never bundles photos - those upload separately in batches, since one
+  // large request is what the server was cutting off
   static Future<File> buildBundle(RecoverySummary summary, String scope) async {
     final docsDir = await getApplicationDocumentsDirectory();
 
@@ -326,12 +320,7 @@ class DatabaseExportHelper {
     return File(p.join(docs.path, 'photo_upload_run.json'));
   }
 
-  /// Progress of one unfinished upload, so it can be picked up where it
-  /// stopped. Cleared the moment a run completes, so the next upload sends
-  /// everything again rather than silently skipping.
-  ///
-  /// [scope] is the day being sent, or 'all'. Progress from a different scope
-  /// does not carry over.
+  // Cleared once a run completes, so the next upload sends everything again
   static Future<Set<String>> resumableFor(String scope) async {
     final file = await _runStateFile();
     if (!await file.exists()) return {};
@@ -386,11 +375,8 @@ class DatabaseExportHelper {
     return batches;
   }
 
-  /// One batch at a time on purpose: zipping everything up front would need a
-  /// second copy of every photo on a tablet that may not have the space.
-  ///
-  /// Named so the file says what it holds without opening it: which day it
-  /// covers, and whether the set is complete.
+  // One batch at a time: zipping everything up front would need a second
+  // copy of every photo, on a tablet that may not have the space
   static Future<File> buildPhotoBatch(
     List<File> photos,
     String scope,

@@ -361,9 +361,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await _send(day);
   }
 
-  /// One path for both buttons. The database always goes as a single small
-  /// upload; photos always go in batches, because a single large transfer is
-  /// what the server cuts off.
+  // One path for both buttons: data as one small upload, photos in batches
   Future<void> _send(DateTime? day) async {
     setState(() {
       _uploading = true;
