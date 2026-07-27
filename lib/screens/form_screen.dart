@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import '../models/field_outing/draft_snapshot.dart';
 import '../models/field_outing/field_outing.dart';
 import '../models/field_outing/plot_data.dart';
 import '../providers/auth_provider.dart';
@@ -95,11 +96,43 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // decide whether the "unsaved changes" prompt is needed.
   String _savedSignature = '';
 
-  String _generatePlotId(String transectId, int plotNumber) {
-    final parts = [transectId, plotNumber.toString()]
-        .where((p) => p.isNotEmpty)
-        .join('_');
-    return parts;
+  String _generatePlotId(String transectId, int plotNumber) =>
+      generatePlotId(transectId, plotNumber);
+
+  DraftSnapshot _buildSnapshot() {
+    return DraftSnapshot(
+      monitoringType: widget.monitoringType,
+      protocolCode: _activeProtocol?.protocolCode ?? 'MassMarshVeg',
+      plots: _plots,
+      hydrology: widget.monitoringType != 'hydrology'
+          ? null
+          : HydrologyFields(
+              areaTreatment: _areaTreatmentController.text.isEmpty
+                  ? null
+                  : _areaTreatmentController.text,
+              wlrType:
+                  _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
+              serialNumber: _serialNumberController.text,
+              waypointNumber: _waypointNumberController.text,
+              rtkElevationNavd88M: double.tryParse(_rtkElevationController.text),
+              waterAboveBelowNutM: double.tryParse(_waterAboveBelowController.text),
+              wellRimToWaterM: double.tryParse(_wellRimToWaterController.text),
+              wellRimToMarshM: double.tryParse(_wellRimToMarshController.text),
+            ),
+      elevation: widget.monitoringType != 'elevation'
+          ? null
+          : ElevationFields(
+              transectId: _transectIdController.text,
+              pointNumber: int.tryParse(_pointNumberController.text) ?? 1,
+              latitude: double.tryParse(_latitudeController.text) ?? 0.0,
+              longitude: double.tryParse(_longitudeController.text) ?? 0.0,
+              elevationNavd88M:
+                  double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
+              featureType: _featureTypeController.text.isEmpty
+                  ? null
+                  : _featureTypeController.text,
+            ),
+    );
   }
 
   /// Serializes the current form state so it can be compared against the
@@ -1400,79 +1433,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       );
 
       final service = ref.read(fieldOutingServiceProvider);
-      final now = DateTime.now().toIso8601String();
 
-      List<Map<String, dynamic>>? childRecords;
-      String? childTable;
-
-      if (widget.monitoringType == 'vegetation') {
-        childTable = 'vegetation_records';
-        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
-        childRecords = _plots.map((plot) {
-          final effectivePlotId = plot.plotId.isNotEmpty
-              ? plot.plotId
-              : _generatePlotId(plot.transectId, plot.plotNumber);
-          return {
-          'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
-          'transect_id': plot.transectId,
-          'plot_number': plot.plotNumber,
-          'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
-          'habitat_type': plot.habitatType,
-          'distance_along_transect_m': plot.distanceAlongTransect,
-          'latitude': plot.latitude,
-          'longitude': plot.longitude,
-          'elevation_m': plot.elevation,
-          'canopy_height_m': plot.canopyHeight,
-          'thatch_height_m': plot.thatchHeight,
-          'species_observations': jsonEncode(plot.species.map((s) => {
-            'species_code': s.speciesCode,
-            'percentage_cover': s.percentageCover,
-          }).toList()),
-          'photo_local_path': plot.photoPath,
-          'notes': plot.notes,
-          'protocol_code': protocolCode,
-          'subclass': plot.subclass,
-          'rtk_point_number': plot.rtkPointNumber,
-          'sync_status': 'pending',
-          'created_at': now,
-          'updated_at': now,
-          };
-        }).toList();
-      } else if (widget.monitoringType == 'hydrology') {
-        childTable = 'hydrology_records';
-        childRecords = [
-          {
-            'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
-            'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
-            'wlr_type': _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
-            'serial_number': _serialNumberController.text,
-            'waypoint_number': _waypointNumberController.text,
-            'rtk_elevation_navd88_m': double.tryParse(_rtkElevationController.text),
-            'water_above_below_nut_m': double.tryParse(_waterAboveBelowController.text),
-            'well_rim_to_water_m': double.tryParse(_wellRimToWaterController.text),
-            'well_rim_to_marsh_m': double.tryParse(_wellRimToMarshController.text),
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-      } else if (widget.monitoringType == 'elevation') {
-        childTable = 'elevation_records';
-        childRecords = [
-          {
-            'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
-            'transect_id': _transectIdController.text,
-            'point_number': int.tryParse(_pointNumberController.text) ?? 1,
-            'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
-            'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
-            'elevation_navd88_m': double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
-            'feature_type': _featureTypeController.text.isEmpty ? null : _featureTypeController.text,
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-      }
+      final snapshot = _buildSnapshot();
+      final childTable = snapshot.childTable;
+      final childRecords = childTable == null ? null : snapshot.toChildRows();
 
       if (childRecords != null && childTable != null) {
         if (_currentDraftId != null) {
@@ -1573,75 +1537,12 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       );
 
       final service = ref.read(fieldOutingServiceProvider);
-      final now = DateTime.now().toIso8601String();
 
-      if (widget.monitoringType == 'vegetation') {
-        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
-        final childRecords = _plots.map((plot) {
-          final effectivePlotId = plot.plotId.isNotEmpty
-              ? plot.plotId
-              : _generatePlotId(plot.transectId, plot.plotNumber);
-          return {
-          'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
-          'transect_id': plot.transectId,
-          'plot_number': plot.plotNumber,
-          'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
-          'habitat_type': plot.habitatType,
-          'distance_along_transect_m': plot.distanceAlongTransect,
-          'latitude': plot.latitude,
-          'longitude': plot.longitude,
-          'elevation_m': plot.elevation,
-          'canopy_height_m': plot.canopyHeight,
-          'thatch_height_m': plot.thatchHeight,
-          'species_observations': jsonEncode(plot.species.map((s) => {
-            'species_code': s.speciesCode,
-            'percentage_cover': s.percentageCover,
-          }).toList()),
-          'photo_local_path': plot.photoPath,
-          'notes': plot.notes,
-          'protocol_code': protocolCode,
-          'subclass': plot.subclass,
-          'rtk_point_number': plot.rtkPointNumber,
-          'sync_status': 'pending',
-          'created_at': now,
-          'updated_at': now,
-          };
-        }).toList();
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'vegetation_records');
-      } else if (widget.monitoringType == 'hydrology') {
-        final childRecords = [
-          {
-            'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
-            'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
-            'wlr_type': _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
-            'serial_number': _serialNumberController.text,
-            'waypoint_number': _waypointNumberController.text,
-            'rtk_elevation_navd88_m': double.tryParse(_rtkElevationController.text),
-            'water_above_below_nut_m': double.tryParse(_waterAboveBelowController.text),
-            'well_rim_to_water_m': double.tryParse(_wellRimToWaterController.text),
-            'well_rim_to_marsh_m': double.tryParse(_wellRimToMarshController.text),
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'hydrology_records');
-      } else if (widget.monitoringType == 'elevation') {
-        final childRecords = [
-          {
-            'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
-            'transect_id': _transectIdController.text,
-            'point_number': int.tryParse(_pointNumberController.text) ?? 1,
-            'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
-            'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
-            'elevation_navd88_m': double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
-            'feature_type': _featureTypeController.text.isEmpty ? null : _featureTypeController.text,
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'elevation_records');
+      final snapshot = _buildSnapshot();
+      final childTable = snapshot.childTable;
+      if (childTable != null) {
+        await service.saveFieldOutingWithChildren(
+            outing, snapshot.toChildRows(), childTable);
       } else {
         await service.saveFieldOuting(outing);
       }
