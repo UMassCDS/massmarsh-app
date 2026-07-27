@@ -55,6 +55,7 @@ dependencies:
 
   # Background tasks
   workmanager: ^0.9.0+3
+  wakelock_plus: ^1.2.8
 
   # JSON serialization
   json_annotation: ^4.9.0

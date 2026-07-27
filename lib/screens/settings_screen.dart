@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
@@ -21,7 +24,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _uploading = false;
+  bool _photoUploading = false;
   double _uploadProgress = 0;
+  int _batchesDone = 0;
+  int _batchesTotal = 0;
+
+  bool get _busy => _uploading || _photoUploading;
+
+  static const _batchBytes = 40 * 1024 * 1024;
 
   @override
   Widget build(BuildContext context) {
@@ -248,23 +258,51 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SectionHeader(label: 'Data'),
           const SizedBox(height: 8),
           Card(
-            child: ListTile(
-              leading: _DataTileIcon(
-                icon: Icons.cloud_upload_outlined,
-                busy: _uploading,
-              ),
-              title: Text('Send all data to server',
-                  style: textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                _uploading
-                    ? 'Uploading ${(_uploadProgress * 100).toStringAsFixed(0)}%'
-                    : 'Upload this device\'s data so an admin can '
-                        'download it remotely',
-                style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.55)),
-              ),
-              onTap: _uploading ? null : _sendToServer,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.cloud_upload_outlined,
+                    busy: _uploading,
+                  ),
+                  title: Text('Send all data to server',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    _uploading
+                        ? 'Uploading ${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                        : 'Upload this device\'s data so an admin can '
+                            'download it remotely',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _busy ? null : _sendToServer,
+                ),
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.photo_library_outlined,
+                    busy: _photoUploading,
+                  ),
+                  title: Text('Send photos to server',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    _photoUploading
+                        ? 'Batch $_batchesDone of $_batchesTotal, '
+                            '${(_uploadProgress * 100).toStringAsFixed(0)}%'
+                        : 'Sent in small batches. Safe to stop and resume.',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _busy ? null : _sendPhotos,
+                ),
+              ],
             ),
           ),
 
@@ -332,6 +370,152 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _sendPhotos() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Which photos?'),
+        content: const Text(
+          'Photos are sent in small batches. If it is interrupted you can '
+          'start it again and it carries on where it stopped.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('cancel'),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('all'),
+            child: const Text('All photos'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop('day'),
+            child: const Text('One day'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null || choice == 'cancel') return;
+    if (!mounted) return;
+
+    DateTime? day;
+    if (choice == 'day') {
+      day = await showDatePicker(
+        context: context,
+        initialDate: DateTime.now(),
+        firstDate: DateTime(2025),
+        lastDate: DateTime.now(),
+        helpText: 'Photos taken on',
+      );
+      if (day == null) return;
+    }
+
+    await _runPhotoUpload(day);
+  }
+
+  Future<void> _runPhotoUpload(DateTime? day) async {
+    setState(() {
+      _photoUploading = true;
+      _batchesDone = 0;
+      _batchesTotal = 0;
+      _uploadProgress = 0;
+    });
+
+    var sentCount = 0;
+    String? failure;
+
+    try {
+      await WakelockPlus.enable();
+
+      final all = await DatabaseExportHelper.photosForDay(day);
+      final alreadySent = await DatabaseExportHelper.sentPhotoNames();
+      final pending = all
+          .where((f) => !alreadySent.contains(p.basename(f.path)))
+          .toList();
+
+      if (pending.isEmpty) {
+        if (mounted) {
+          showAppSnackBar(
+            context,
+            all.isEmpty
+                ? 'No photos found for that day'
+                : 'All ${all.length} photo(s) already sent',
+            duration: const Duration(seconds: 5),
+          );
+        }
+        return;
+      }
+
+      final batches =
+          await DatabaseExportHelper.batchBySize(pending, _batchBytes);
+      if (mounted) setState(() => _batchesTotal = batches.length);
+
+      final runId = const Uuid().v4().substring(0, 8);
+
+      for (var i = 0; i < batches.length; i++) {
+        if (mounted) {
+          setState(() {
+            _batchesDone = i + 1;
+            _uploadProgress = 0;
+          });
+        }
+
+        final zip = await DatabaseExportHelper.buildPhotoBatch(
+            batches[i], runId, i + 1);
+        try {
+          final result = await SyncService.instance.uploadRecoveryBundle(
+            zip.path,
+            onProgress: (sent, total) {
+              if (!mounted || total <= 0) return;
+              setState(() => _uploadProgress = sent / total);
+            },
+          );
+
+          if (!result.success) {
+            failure = result.error;
+            break;
+          }
+        } finally {
+          if (await zip.exists()) await zip.delete();
+        }
+
+        // Recorded before any mounted check so leaving the screen cannot lose
+        // the fact that these photos are safely on the server
+        await DatabaseExportHelper.markPhotosSent(
+            batches[i].map((f) => p.basename(f.path)));
+        sentCount += batches[i].length;
+      }
+    } catch (e) {
+      failure = '$e';
+    } finally {
+      await WakelockPlus.disable();
+      if (mounted) {
+        setState(() {
+          _photoUploading = false;
+          _uploadProgress = 0;
+        });
+      }
+    }
+
+    if (!mounted) return;
+    if (failure == null) {
+      showAppSnackBar(
+        context,
+        'Sent $sentCount photo(s)',
+        duration: const Duration(seconds: 6),
+      );
+    } else {
+      showAppSnackBar(
+        context,
+        'Sent $sentCount photo(s), then stopped: $failure. '
+        'Tap again to carry on.',
+        backgroundColor: Theme.of(context).colorScheme.error,
+        duration: const Duration(seconds: 8),
+      );
+    }
   }
 
   Future<void> _sendToServer() async {

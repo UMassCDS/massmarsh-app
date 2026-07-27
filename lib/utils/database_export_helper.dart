@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -265,6 +266,121 @@ class DatabaseExportHelper {
     } finally {
       await AppDatabase.instance.database;
     }
+  }
+
+  // Photos are named <epochMillis>.<ext> at capture time, so the filename is
+  // both the identity and the timestamp. No EXIF parsing needed.
+  static DateTime? photoTakenAt(File file) {
+    final millis = int.tryParse(p.basenameWithoutExtension(file.path));
+    return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+
+  /// Photos on the device, newest first. Pass [day] to limit to one date.
+  static Future<List<File>> photosForDay(DateTime? day) async {
+    final dir = await _photosDirectory();
+    if (!await dir.exists()) return [];
+
+    final files = <File>[];
+    await for (final entity in dir.list()) {
+      if (entity is File) files.add(entity);
+    }
+
+    final filtered = day == null
+        ? files
+        : files.where((f) {
+            final taken = photoTakenAt(f);
+            return taken != null &&
+                taken.year == day.year &&
+                taken.month == day.month &&
+                taken.day == day.day;
+          }).toList();
+
+    // Name as tiebreak so an interrupted run re-batches identically on resume
+    filtered.sort((a, b) {
+      final byTime = (photoTakenAt(b)?.millisecondsSinceEpoch ?? 0)
+          .compareTo(photoTakenAt(a)?.millisecondsSinceEpoch ?? 0);
+      return byTime != 0 ? byTime : a.path.compareTo(b.path);
+    });
+    return filtered;
+  }
+
+  static Future<File> _sentStateFile() async {
+    final docs = await getApplicationDocumentsDirectory();
+    return File(p.join(docs.path, 'photo_upload_state.json'));
+  }
+
+  /// Filenames the server has already accepted. Tracked by name rather than by
+  /// batch number, because batch boundaries shift when a run resumes.
+  static Future<Set<String>> sentPhotoNames() async {
+    final file = await _sentStateFile();
+    if (!await file.exists()) return {};
+    try {
+      final decoded = jsonDecode(await file.readAsString()) as List<dynamic>;
+      return decoded.map((e) => e.toString()).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> markPhotosSent(Iterable<String> names) async {
+    final file = await _sentStateFile();
+    final current = await sentPhotoNames()
+      ..addAll(names);
+    await file.writeAsString(jsonEncode(current.toList()));
+  }
+
+  static Future<void> clearSentPhotoState() async {
+    final file = await _sentStateFile();
+    if (await file.exists()) await file.delete();
+  }
+
+  static Future<List<List<File>>> batchBySize(
+    List<File> files,
+    int maxBytes,
+  ) async {
+    final batches = <List<File>>[];
+    var current = <File>[];
+    var size = 0;
+
+    for (final file in files) {
+      final length = await file.length();
+      if (current.isNotEmpty && size + length > maxBytes) {
+        batches.add(current);
+        current = [];
+        size = 0;
+      }
+      current.add(file);
+      size += length;
+    }
+    if (current.isNotEmpty) batches.add(current);
+
+    return batches;
+  }
+
+  /// One batch at a time on purpose: zipping everything up front would need a
+  /// second copy of every photo on a tablet that may not have the space.
+  static Future<File> buildPhotoBatch(
+    List<File> photos,
+    String runId,
+    int index,
+  ) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final path = p.join(docs.path, 'saltmarsh-photos-$runId-$index.zip');
+    final existing = File(path);
+    if (await existing.exists()) await existing.delete();
+
+    final encoder = ZipFileEncoder();
+    // Stored, not deflated: JPEGs do not compress, so it would burn battery
+    encoder.create(path, level: ZipFileEncoder.store);
+    try {
+      for (final photo in photos) {
+        await encoder.addFile(photo, p.basename(photo.path));
+      }
+    } finally {
+      await encoder.close();
+    }
+
+    return File(path);
   }
 
   /// Replaces the current database. Caller must confirm with the user first.
