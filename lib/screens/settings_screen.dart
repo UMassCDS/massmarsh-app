@@ -382,7 +382,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           .toList();
       if (!mounted) return;
 
-      final withPhotos = await _askScope(day, photos, pending);
+      final withPhotos = await _askScope(day, pending);
       if (withPhotos == null) return;
 
       setState(() => _phase = 'Sending data');
@@ -417,7 +417,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (sent.failure == null) {
         // Run complete: forget the progress so the next upload sends it all
         await DatabaseExportHelper.clearRunState();
-        _report('Data sent, plus ${sent.count} photo(s).');
+        _report('Data sent, plus ${sent.count} photo(s) '
+            '(${_humanSize(sent.bytes)}).');
       } else {
         _report(
             'Data sent, plus ${sent.count} photo(s), then stopped: '
@@ -449,46 +450,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return '$bytes B';
   }
 
-  Future<bool?> _askScope(
-    DateTime? day,
-    List<File> photos,
-    List<File> pending,
-  ) async {
+  // Deliberately shows no photo count or size here. Whoever runs this may be
+  // in the field with no one to interpret a number for them, and a low or
+  // zero count before anything has even been sent reads as data loss when it
+  // usually just means "wrong date" or "not taken yet". The real numbers go
+  // into the after-the-fact report and the summary the admin receives.
+  Future<bool?> _askScope(DateTime? day, List<File> pending) async {
     final what = day == null
         ? 'everything on this device'
         : 'the database plus photos from '
             '${day.month}/${day.day}/${day.year}';
-
-    var totalBytes = 0;
-    for (final f in photos) {
-      totalBytes += await f.length();
-    }
-    var pendingBytes = 0;
-    for (final f in pending) {
-      pendingBytes += await f.length();
-    }
-
-    final resuming = pending.length < photos.length;
-    String photoLine;
-    if (photos.isNotEmpty) {
-      photoLine = resuming
-          ? '${photos.length} photo(s), ${_humanSize(totalBytes)}. '
-              'Carrying on from an upload that stopped: '
-              '${photos.length - pending.length} already sent, '
-              '${pending.length} left (${_humanSize(pendingBytes)}).'
-          : '${photos.length} photo(s), ${_humanSize(totalBytes)}.';
-    } else if (day == null) {
-      photoLine = 'No photos are stored on this device.';
-    } else {
-      // Never let an empty day read as "everything is gone" without saying how
-      // many photos the device actually holds
-      final onDevice = (await DatabaseExportHelper.allPhotos()).length;
-      photoLine = onDevice == 0
-          ? 'No photos are stored on this device at all.'
-          : 'No photos from that day. This device holds $onDevice photo(s) '
-              'from other dates, so try "Send all data to server" or pick a '
-              'different date.';
-    }
+    final resuming = pending.isNotEmpty &&
+        (await DatabaseExportHelper.resumableFor(
+                DatabaseExportHelper.scopeLabel(day)))
+            .isNotEmpty;
 
     if (!mounted) return null;
     return showDialog<bool>(
@@ -498,7 +473,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: Text(
           'This sends $what so an admin can review it. Nothing on this '
           'device is changed or deleted.\n\n'
-          '$photoLine\n\n'
+          '${resuming ? 'Continuing a previous upload that stopped partway. ' : ''}'
           'Photos go in small batches. If this stops partway you can start it '
           'again and it will pick up where it left off.',
         ),
@@ -520,10 +495,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<({int count, String? failure})> _uploadPhotoBatches(
+  Future<({int count, int bytes, String? failure})> _uploadPhotoBatches(
       List<File> pending, String scope) async {
     final batches = await DatabaseExportHelper.batchBySize(pending, _batchBytes);
     var count = 0;
+    var bytes = 0;
 
     for (var i = 0; i < batches.length; i++) {
       if (mounted) {
@@ -543,7 +519,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             setState(() => _uploadProgress = sent / total);
           },
         );
-        if (!result.success) return (count: count, failure: result.error);
+        if (!result.success) {
+          return (count: count, bytes: bytes, failure: result.error);
+        }
       } finally {
         if (await zip.exists()) await zip.delete();
       }
@@ -553,9 +531,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await DatabaseExportHelper.recordRunProgress(
           scope, batches[i].map((f) => p.basename(f.path)));
       count += batches[i].length;
+      for (final f in batches[i]) {
+        bytes += await f.length();
+      }
     }
 
-    return (count: count, failure: null);
+    return (count: count, bytes: bytes, failure: null);
   }
 
   void _report(String message, {bool isError = false}) {
