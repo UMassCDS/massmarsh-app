@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 /// Mutable while a plot is being filled in. Distinct from the persisted
 /// SpeciesObservation in vegetation_record.dart, which is immutable.
@@ -15,6 +16,9 @@ class PlotSpeciesEntry {
 }
 
 class PlotData {
+  /// Assigned once and never regenerated. The server dedupes uploads on
+  /// (outing_id, local_id), so a changing id would create duplicate records.
+  final String localId;
   String transectId;
   int plotNumber;
   String plotId;
@@ -40,6 +44,7 @@ class PlotData {
   final Map<String, TextEditingController> extraControllers;
 
   PlotData({
+    String? localId,
     required this.transectId,
     required this.plotNumber,
     this.plotId = '',
@@ -58,7 +63,8 @@ class PlotData {
     this.subclass,
     this.rtkPointNumber,
     List<String> pinnedCodes = const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
-  })  : latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
+  })  : localId = localId ?? 'veg_${const Uuid().v4()}',
+        latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
         lngController = TextEditingController(text: longitude == 0 ? '' : longitude.toString()),
         plotIdController = TextEditingController(text: plotId),
         rtkPointNumberController = TextEditingController(text: rtkPointNumber ?? ''),

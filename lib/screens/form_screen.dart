@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 import '../models/field_outing/draft_snapshot.dart';
 import '../models/field_outing/field_outing.dart';
 import '../models/field_outing/plot_data.dart';
@@ -92,6 +93,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // in place). Starts as the opened draft's id, or null for a new form.
   int? _currentDraftId;
 
+  // Hydrology and elevation sessions hold a single child row; keeping its id
+  // for the life of the form lets autosave update rather than re-insert it
+  final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
+
   // Snapshot of the form state at the last save (or initial load), used to
   // decide whether the "unsaved changes" prompt is needed.
   String _savedSignature = '';
@@ -102,6 +107,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   DraftSnapshot _buildSnapshot() {
     return DraftSnapshot(
       monitoringType: widget.monitoringType,
+      singleRecordLocalId: _singleRecordLocalId,
       protocolCode: _activeProtocol?.protocolCode ?? 'MassMarshVeg',
       plots: _plots,
       hydrology: widget.monitoringType != 'hydrology'
@@ -342,6 +348,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             }
             
             return PlotData(
+              localId: record['local_id'] as String?,
               transectId: record['transect_id'] as String? ?? '',
               plotNumber: record['plot_number'] as int? ?? 1,
               plotId: record['plot_id'] as String? ?? '',

@@ -56,8 +56,13 @@ class DraftSnapshot {
   final HydrologyFields? hydrology;
   final ElevationFields? elevation;
 
+  /// Held by the form for the life of the session so repeated autosaves update
+  /// the same row rather than inserting a new one each time.
+  final String singleRecordLocalId;
+
   const DraftSnapshot({
     required this.monitoringType,
+    required this.singleRecordLocalId,
     this.protocolCode = 'MassMarshVeg',
     this.plots = const [],
     this.hydrology,
@@ -98,7 +103,7 @@ class DraftSnapshot {
         : generatePlotId(plot.transectId, plot.plotNumber);
 
     return {
-      'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
+      'local_id': plot.localId,
       'transect_id': plot.transectId,
       'plot_number': plot.plotNumber,
       'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
@@ -128,7 +133,7 @@ class DraftSnapshot {
 
   Map<String, dynamic> _hydrologyRow(HydrologyFields fields, String now) {
     return {
-      'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
+      'local_id': singleRecordLocalId,
       'area_treatment': fields.areaTreatment,
       'wlr_type': fields.wlrType,
       'serial_number': fields.serialNumber,
@@ -145,7 +150,7 @@ class DraftSnapshot {
 
   Map<String, dynamic> _elevationRow(ElevationFields fields, String now) {
     return {
-      'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
+      'local_id': singleRecordLocalId,
       'transect_id': fields.transectId,
       'point_number': fields.pointNumber,
       'latitude': fields.latitude,
