@@ -197,13 +197,10 @@ class DatabaseExportHelper {
     return buffer.toString();
   }
 
-  /// Bundles the database, a plain-text report and optionally every photo.
-  /// Photos are excluded for uploads over a field hotspot, where the database
-  /// alone answers whether the data survived.
-  static Future<File> buildBundle(
-    RecoverySummary summary, {
-    bool includePhotos = true,
-  }) async {
+  /// Bundles the database and a plain-text report. Never photos: those go
+  /// separately in batches, because one large upload is what the server cuts
+  /// off partway through.
+  static Future<File> buildBundle(RecoverySummary summary) async {
     final docsDir = await getApplicationDocumentsDirectory();
     final stamp = DateTime.now()
         .toIso8601String()
@@ -221,8 +218,7 @@ class DatabaseExportHelper {
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
 
-      final suffix = includePhotos ? '' : '-db-only';
-      final zipPath = p.join(docsDir.path, 'saltmarsh-recovery-$stamp$suffix.zip');
+      final zipPath = p.join(docsDir.path, 'saltmarsh-database-$stamp.zip');
       final zipFile = File(zipPath);
       if (await zipFile.exists()) await zipFile.delete();
 
@@ -233,12 +229,6 @@ class DatabaseExportHelper {
           if (entity is File) {
             await encoder.addFile(entity, p.basename(entity.path));
           }
-        }
-        // Zipped straight from the live folder so a second full-size copy of
-        // every photo is never written to a tablet that may be near full
-        final photosDir = await _photosDirectory();
-        if (includePhotos && await photosDir.exists()) {
-          await encoder.addDirectory(photosDir, includeDirName: true);
         }
       } finally {
         await encoder.close();
@@ -381,13 +371,18 @@ class DatabaseExportHelper {
 
   /// One batch at a time on purpose: zipping everything up front would need a
   /// second copy of every photo on a tablet that may not have the space.
+  ///
+  /// Named so the file says what it holds without opening it: which day it
+  /// covers, and whether the set is complete.
   static Future<File> buildPhotoBatch(
     List<File> photos,
-    String runId,
+    String scope,
     int index,
+    int total,
   ) async {
     final docs = await getApplicationDocumentsDirectory();
-    final path = p.join(docs.path, 'saltmarsh-photos-$runId-$index.zip');
+    final path = p.join(
+        docs.path, 'saltmarsh-photos-$scope-${index}of$total.zip');
     final existing = File(path);
     if (await existing.exists()) await existing.delete();
 

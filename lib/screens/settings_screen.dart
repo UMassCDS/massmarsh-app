@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
-import 'package:uuid/uuid.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
@@ -521,8 +520,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<({int count, String? failure})> _uploadPhotoBatches(
       List<File> pending, String scope) async {
     final batches = await DatabaseExportHelper.batchBySize(pending, _batchBytes);
-
-    final runId = const Uuid().v4().substring(0, 8);
     var count = 0;
 
     for (var i = 0; i < batches.length; i++) {
@@ -533,8 +530,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         });
       }
 
-      final zip =
-          await DatabaseExportHelper.buildPhotoBatch(batches[i], runId, i + 1);
+      final zip = await DatabaseExportHelper.buildPhotoBatch(
+          batches[i], scope, i + 1, batches.length);
       try {
         final result = await SyncService.instance.uploadRecoveryBundle(
           zip.path,
