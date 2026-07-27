@@ -7,6 +7,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../models/field_outing/field_outing.dart';
+import '../models/field_outing/plot_data.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
@@ -27,96 +28,6 @@ class FormScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<FormScreen> createState() => _FormScreenState();
-}
-
-// Data class for a single species observation
-class SpeciesObservation {
-  String speciesCode;
-  int percentageCover;
-
-  SpeciesObservation({
-    required this.speciesCode,
-    required this.percentageCover,
-  });
-}
-
-// Data class for a plot
-class PlotData {
-  String transectId;
-  int plotNumber;
-  String plotId;
-  bool plotIdManuallySet;
-  String habitatType;
-  double distanceAlongTransect;
-  double latitude;
-  double longitude;
-  double canopyHeight;
-  double thatchHeight;
-  double? elevation;
-  String? notes;
-  File? photoFile;
-  String? photoPath;
-  List<SpeciesObservation> species;
-  String? subclass;
-  String? rtkPointNumber;
-  final TextEditingController latController;
-  final TextEditingController lngController;
-  final TextEditingController plotIdController;
-  final TextEditingController rtkPointNumberController;
-  final Map<String, TextEditingController> pinnedControllers;
-  final Map<String, TextEditingController> extraControllers;
-
-  PlotData({
-    required this.transectId,
-    required this.plotNumber,
-    this.plotId = '',
-    this.plotIdManuallySet = false,
-    required this.habitatType,
-    required this.distanceAlongTransect,
-    required this.latitude,
-    required this.longitude,
-    required this.canopyHeight,
-    required this.thatchHeight,
-    this.elevation,
-    this.notes,
-    this.photoFile,
-    this.photoPath,
-    this.species = const [],
-    this.subclass,
-    this.rtkPointNumber,
-    List<String> pinnedCodes = const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
-  })  : latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
-        lngController = TextEditingController(text: longitude == 0 ? '' : longitude.toString()),
-        plotIdController = TextEditingController(text: plotId),
-        rtkPointNumberController = TextEditingController(text: rtkPointNumber ?? ''),
-        pinnedControllers = Map.fromEntries(
-          pinnedCodes.map((code) {
-            final existing = species.where((s) => s.speciesCode == code);
-            final text = existing.isNotEmpty ? existing.first.percentageCover.toString() : '';
-            return MapEntry(code, TextEditingController(text: text));
-          }),
-        ),
-        extraControllers = Map.fromEntries(
-          species
-              .where((s) => !Set.from(pinnedCodes).contains(s.speciesCode))
-              .map((s) => MapEntry(
-                    s.speciesCode,
-                    TextEditingController(text: s.percentageCover.toString()),
-                  )),
-        );
-
-  void dispose() {
-    latController.dispose();
-    lngController.dispose();
-    plotIdController.dispose();
-    rtkPointNumberController.dispose();
-    for (final c in pinnedControllers.values) {
-      c.dispose();
-    }
-    for (final c in extraControllers.values) {
-      c.dispose();
-    }
-  }
 }
 
 class _FormScreenState extends ConsumerState<FormScreen> {
@@ -388,10 +299,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         
         setState(() {
           _plots = vegRecords.map((record) {
-            List<SpeciesObservation> species = [];
+            List<PlotSpeciesEntry> species = [];
             if (record['species_observations'] != null) {
               final speciesJson = jsonDecode(record['species_observations'] as String) as List;
-              species = speciesJson.map((s) => SpeciesObservation(
+              species = speciesJson.map((s) => PlotSpeciesEntry(
                 speciesCode: s['species_code'] as String,
                 percentageCover: s['percentage_cover'] as int,
               )).toList();
@@ -1822,7 +1733,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     setState(() {
       plot.species.removeWhere((s) => s.speciesCode == code);
       if (percent != null && percent > 0) {
-        plot.species.add(SpeciesObservation(
+        plot.species.add(PlotSpeciesEntry(
           speciesCode: code,
           percentageCover: percent.clamp(0, 100),
         ));
@@ -1835,7 +1746,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final plot = widget.plot;
     if (plot.species.any((s) => s.speciesCode == species.code)) return;
     setState(() {
-      plot.species.add(SpeciesObservation(speciesCode: species.code, percentageCover: 0));
+      plot.species.add(PlotSpeciesEntry(speciesCode: species.code, percentageCover: 0));
       plot.extraControllers[species.code] = TextEditingController(text: '');
       _searchController.clear();
       _searchQuery = '';
@@ -1859,7 +1770,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final idx = plot.species.indexWhere((s) => s.speciesCode == code);
     if (idx < 0 || percent == null) return;
     setState(() {
-      plot.species[idx] = SpeciesObservation(
+      plot.species[idx] = PlotSpeciesEntry(
         speciesCode: code,
         percentageCover: percent.clamp(0, 100),
       );
@@ -1955,7 +1866,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
           final controller = plot.pinnedControllers[code];
           final currentValue = plot.species
               .firstWhere((s) => s.speciesCode == code,
-                  orElse: () => SpeciesObservation(speciesCode: code, percentageCover: 0))
+                  orElse: () => PlotSpeciesEntry(speciesCode: code, percentageCover: 0))
               .percentageCover;
           if (widget.coverIncrement == 1) {
             return Padding(
