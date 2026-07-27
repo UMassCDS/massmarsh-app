@@ -207,16 +207,21 @@ class DatabaseExportHelper {
     return '$y-$m-$d';
   }
 
+  // Time only, not a second date: the export day is already obvious from
+  // when the file shows up, so this only needs to tell two same-day runs
+  // apart. "for" marks the scope, "at" marks the moment, so the two never
+  // read as a pair of dates.
+  static String _exportedAtLabel() {
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
   /// Bundles the database and a plain-text report. Never photos: those go
   /// separately in batches, because one large upload is what the server cuts
   /// off partway through.
   static Future<File> buildBundle(RecoverySummary summary, String scope) async {
     final docsDir = await getApplicationDocumentsDirectory();
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .split('.')
-        .first
-        .replaceAll(RegExp(r'[:T]'), '-');
 
     final stagingDir = Directory(p.join(docsDir.path, 'recovery_staging'));
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
@@ -228,8 +233,9 @@ class DatabaseExportHelper {
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
 
-      final zipPath =
-          p.join(docsDir.path, 'saltmarsh-database-$scope-$stamp.zip');
+      final zipPath = p.join(
+          docsDir.path,
+          'saltmarsh-database-for-$scope-at-${_exportedAtLabel()}.zip');
       final zipFile = File(zipPath);
       if (await zipFile.exists()) await zipFile.delete();
 
