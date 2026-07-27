@@ -375,11 +375,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       await WakelockPlus.enable();
 
+      final scope = day == null
+          ? 'all'
+          : '${day.year}-${day.month}-${day.day}';
+
       final summary = await DatabaseExportHelper.inspect();
       final photos = await DatabaseExportHelper.photosForDay(day);
+      final resumable = await DatabaseExportHelper.resumableFor(scope);
+      final pending = photos
+          .where((f) => !resumable.contains(p.basename(f.path)))
+          .toList();
       if (!mounted) return;
 
-      final withPhotos = await _askScope(day, summary, photos);
+      final withPhotos = await _askScope(day, photos, pending);
       if (withPhotos == null) return;
 
       setState(() => _phase = 'Sending data');
@@ -403,12 +411,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return;
       }
 
-      final sent = await _uploadPhotoBatches(photos);
-      _report(sent.failure == null
-          ? 'Data sent, plus ${sent.count} photo(s).'
-          : 'Data sent, plus ${sent.count} photo(s), then stopped: '
-              '${sent.failure}. Tap again to carry on.',
-          isError: sent.failure != null);
+      if (pending.isEmpty) {
+        // Every photo went up on a previous attempt, so the run is finished
+        await DatabaseExportHelper.clearRunState();
+        _report('Data sent. Photos were already finished.');
+        return;
+      }
+
+      final sent = await _uploadPhotoBatches(pending, scope);
+      if (sent.failure == null) {
+        // Run complete: forget the progress so the next upload sends it all
+        await DatabaseExportHelper.clearRunState();
+        _report('Data sent, plus ${sent.count} photo(s).');
+      } else {
+        _report(
+            'Data sent, plus ${sent.count} photo(s), then stopped: '
+            '${sent.failure}. Start it again to carry on.',
+            isError: true);
+      }
     } catch (e) {
       _report('Upload failed: $e', isError: true);
     } finally {
@@ -423,27 +443,38 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
+  static String _humanSize(int bytes) => bytes >= 1024 * 1024 * 1024
+      ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
+      : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+
   Future<bool?> _askScope(
     DateTime? day,
-    RecoverySummary summary,
     List<File> photos,
+    List<File> pending,
   ) async {
-    final scope = day == null
+    final what = day == null
         ? 'everything on this device'
         : 'the database plus photos from '
             '${day.day}/${day.month}/${day.year}';
 
-    var bytes = 0;
+    var totalBytes = 0;
     for (final f in photos) {
-      bytes += await f.length();
+      totalBytes += await f.length();
     }
-    final size = bytes >= 1024 * 1024 * 1024
-        ? '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
-        : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+    var pendingBytes = 0;
+    for (final f in pending) {
+      pendingBytes += await f.length();
+    }
 
+    final resuming = pending.length < photos.length;
     final photoLine = photos.isEmpty
         ? 'No photos found on this device${day == null ? '' : ' for that day'}.'
-        : '${photos.length} photo(s), $size.';
+        : resuming
+            ? '${photos.length} photo(s), ${_humanSize(totalBytes)}. '
+                'Carrying on from an upload that stopped: '
+                '${photos.length - pending.length} already sent, '
+                '${pending.length} left (${_humanSize(pendingBytes)}).'
+            : '${photos.length} photo(s), ${_humanSize(totalBytes)}.';
 
     if (!mounted) return null;
     return showDialog<bool>(
@@ -451,11 +482,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Send to server?'),
         content: Text(
-          'This sends $scope so an admin can review it. Nothing on this '
+          'This sends $what so an admin can review it. Nothing on this '
           'device is changed or deleted.\n\n'
           '$photoLine\n\n'
-          'Photos go in small batches, so you can stop and start again '
-          'without losing progress.',
+          'Photos go in small batches. If this stops partway you can start it '
+          'again and it will pick up where it left off.',
         ),
         actions: [
           TextButton(
@@ -476,7 +507,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<({int count, String? failure})> _uploadPhotoBatches(
-      List<File> pending) async {
+      List<File> pending, String scope) async {
     final batches = await DatabaseExportHelper.batchBySize(pending, _batchBytes);
 
     final runId = const Uuid().v4().substring(0, 8);
@@ -507,8 +538,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       // Recorded before any mounted check, so leaving the screen cannot lose
       // the fact that these are safely on the server
-      await DatabaseExportHelper.markPhotosSent(
-          batches[i].map((f) => p.basename(f.path)));
+      await DatabaseExportHelper.recordRunProgress(
+          scope, batches[i].map((f) => p.basename(f.path)));
       count += batches[i].length;
     }
 

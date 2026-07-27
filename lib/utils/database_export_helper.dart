@@ -304,33 +304,45 @@ class DatabaseExportHelper {
     return filtered;
   }
 
-  static Future<File> _sentStateFile() async {
+  static Future<File> _runStateFile() async {
     final docs = await getApplicationDocumentsDirectory();
-    return File(p.join(docs.path, 'photo_upload_state.json'));
+    return File(p.join(docs.path, 'photo_upload_run.json'));
   }
 
-  /// Filenames the server has already accepted. Tracked by name rather than by
-  /// batch number, because batch boundaries shift when a run resumes.
-  static Future<Set<String>> sentPhotoNames() async {
-    final file = await _sentStateFile();
+  /// Progress of one unfinished upload, so it can be picked up where it
+  /// stopped. Cleared the moment a run completes, so the next upload sends
+  /// everything again rather than silently skipping.
+  ///
+  /// [scope] is the day being sent, or 'all'. Progress from a different scope
+  /// does not carry over.
+  static Future<Set<String>> resumableFor(String scope) async {
+    final file = await _runStateFile();
     if (!await file.exists()) return {};
     try {
-      final decoded = jsonDecode(await file.readAsString()) as List<dynamic>;
-      return decoded.map((e) => e.toString()).toSet();
+      final decoded =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      if (decoded['scope'] != scope) return {};
+      return (decoded['sent'] as List<dynamic>)
+          .map((e) => e.toString())
+          .toSet();
     } catch (_) {
       return {};
     }
   }
 
-  static Future<void> markPhotosSent(Iterable<String> names) async {
-    final file = await _sentStateFile();
-    final current = await sentPhotoNames()
+  static Future<void> recordRunProgress(
+    String scope,
+    Iterable<String> names,
+  ) async {
+    final file = await _runStateFile();
+    final sent = await resumableFor(scope)
       ..addAll(names);
-    await file.writeAsString(jsonEncode(current.toList()));
+    await file.writeAsString(
+        jsonEncode({'scope': scope, 'sent': sent.toList()}));
   }
 
-  static Future<void> clearSentPhotoState() async {
-    final file = await _sentStateFile();
+  static Future<void> clearRunState() async {
+    final file = await _runStateFile();
     if (await file.exists()) await file.delete();
   }
 
