@@ -13,6 +13,7 @@ import '../models/field_outing/plot_data.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/draft_autosave.dart';
 import '../services/species_service.dart';
 import '../services/protocol_service.dart';
 import '../utils/id_utils.dart';
@@ -32,7 +33,8 @@ class FormScreen extends ConsumerStatefulWidget {
   ConsumerState<FormScreen> createState() => _FormScreenState();
 }
 
-class _FormScreenState extends ConsumerState<FormScreen> {
+class _FormScreenState extends ConsumerState<FormScreen>
+    with WidgetsBindingObserver {
   late final _formKey = GlobalKey<FormState>();
   final _scrollController = ScrollController();
   late final _siteNameController = TextEditingController();
@@ -96,6 +98,15 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // Hydrology and elevation sessions hold a single child row; keeping its id
   // for the life of the form lets autosave update rather than re-insert it
   final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
+
+  late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
+
+  /// Every edit routes through here. The form is never the only copy of an
+  /// entry for longer than the autosave delay.
+  void _onEdited() {
+    if (!_isDirty) return;
+    _autosave.schedule();
+  }
 
   // Snapshot of the form state at the last save (or initial load), used to
   // decide whether the "unsaved changes" prompt is needed.
@@ -239,8 +250,21 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Last chance to write before Android can reclaim the process
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _autosave.flush().catchError((_) {});
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _plots = [];
     _currentDraftId = widget.draftId;
     // Load species, protocol, and default visibility after first frame
@@ -456,6 +480,16 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+
+    // Captured synchronously, before the controllers below are torn down, then
+    // written without them. dispose cannot await, so the write is detached.
+    final pending = _autosave.hasPendingWork ? _captureDraft() : null;
+    _autosave.cancel();
+    if (pending != null) {
+      _writeDraft(pending).catchError((_) {});
+    }
+
     for (final plot in _plots) {
       plot.dispose();
     }
@@ -662,6 +696,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                   constraints: const BoxConstraints(maxWidth: 720),
                   child: Form(
                     key: _formKey,
+                    onChanged: _onEdited,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -764,6 +799,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
               ));
             });
+            _onEdited();
           },
           icon: const Icon(Icons.add),
           label: const Text('Add New Plot'),
@@ -797,6 +833,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                       setState(() {
                         _plots.removeAt(index).dispose();
                       });
+                      _onEdited();
                     },
                   ),
               ],
@@ -913,7 +950,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.pin_drop),
                   ),
-                  onChanged: (v) => setState(() => plot.rtkPointNumber = v.isEmpty ? null : v),
+                  onChanged: (v) {
+                    setState(() => plot.rtkPointNumber = v.isEmpty ? null : v);
+                    _onEdited();
+                  },
                 ),
               ),
             if (_activeProtocol?.hasExtraField('subclass') ?? false)
@@ -933,7 +973,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                             child: Text(opt, overflow: TextOverflow.ellipsis),
                           ))
                       .toList(),
-                  onChanged: (v) => setState(() => plot.subclass = v),
+                  onChanged: (v) {
+                    setState(() => plot.subclass = v);
+                    _onEdited();
+                  },
                 ),
               ),
 
@@ -1024,7 +1067,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             _SpeciesInput(
               plot: plot,
               allSpecies: _allSpecies,
-              onChanged: () => setState(() {}),
+              onChanged: () {
+                setState(() {});
+                _onEdited();
+              },
               coverIncrement: _activeProtocol?.speciesConfig.coverIncrement ?? 1,
               pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             ),
@@ -1066,6 +1112,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                     _plots[plotIndex].habitatType = value;
                 }
               });
+              _onEdited();
             }
           },
           decoration: InputDecoration(
@@ -1127,6 +1174,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 _plots[plotIndex].notes = value;
             }
           });
+          _onEdited();
         },
         validator: (value) {
           if (!isOptional && (value == null || value.isEmpty)) {
@@ -1347,6 +1395,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           _plots[plotIndex].photoFile = File(permanentPath);
           _plots[plotIndex].photoPath = permanentPath;
         });
+        // Flushed rather than scheduled: a photo is expensive to retake
+        await _autosave.flush();
       }
     } catch (e) {
       if (mounted) {
@@ -1368,6 +1418,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           _plots[plotIndex].photoFile = File(permanentPath);
           _plots[plotIndex].photoPath = permanentPath;
         });
+        // Flushed rather than scheduled: a photo is expensive to retake
+        await _autosave.flush();
       }
     } catch (e) {
       if (mounted) {
@@ -1410,58 +1462,76 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
+  /// Reads every controller synchronously. Must not await before it returns,
+  /// so it stays valid even when called while the widget is being torn down.
+  ({FieldOuting outing, String? childTable, List<Map<String, dynamic>> rows})
+      _captureDraft() {
+    final startTime = _startTimeController.text.isNotEmpty
+        ? _parseTimeString(_startTimeController.text)
+        : null;
+    final endTime = _endTimeController.text.isNotEmpty
+        ? _parseTimeString(_endTimeController.text)
+        : null;
+
+    final outing = FieldOuting(
+      orgId: ref.read(selectedOrgIdProvider),
+      createdByUserId: ref.read(authProvider).user?.id,
+      siteName: _siteNameController.text,
+      otherMembers: _otherMembersController.text.isEmpty
+          ? null
+          : _otherMembersController.text,
+      monitoringType: widget.monitoringType,
+      startTime: startTime,
+      endTime: endTime,
+      isDraft: true,
+      visibility: _visibility,
+      embargoUntil: _embargoUntil,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final snapshot = _buildSnapshot();
+    final childTable = snapshot.childTable;
+
+    return (
+      outing: outing,
+      childTable: childTable,
+      rows: childTable == null ? const <Map<String, dynamic>>[] : snapshot.toChildRows(),
+    );
+  }
+
+  Future<void> _writeDraft(
+    ({FieldOuting outing, String? childTable, List<Map<String, dynamic>> rows})
+        captured,
+  ) async {
+    final service = ref.read(fieldOutingServiceProvider);
+    final childTable = captured.childTable;
+
+    if (childTable != null) {
+      if (_currentDraftId != null) {
+        await service.updateDraftWithChildren(
+            _currentDraftId!, captured.outing, captured.rows, childTable);
+      } else {
+        final localId = await service.saveFieldOutingWithChildren(
+            captured.outing, captured.rows, childTable);
+        _currentDraftId = await service.getDbIdByLocalId(localId);
+      }
+    } else {
+      final localId = await service.saveFieldOuting(captured.outing);
+      _currentDraftId ??= await service.getDbIdByLocalId(localId);
+    }
+  }
+
+  Future<void> _persistDraft() async {
+    final captured = _captureDraft();
+    await _writeDraft(captured);
+    _markClean();
+  }
+
   Future<bool> _saveDraft(BuildContext context, WidgetRef ref, {bool navigateAway = false}) async {
     // Don't require validation for drafts - they can be incomplete
     try {
-      // Parse start and end times if provided
-      final startTime = _startTimeController.text.isNotEmpty
-          ? _parseTimeString(_startTimeController.text)
-          : null;
-      final endTime = _endTimeController.text.isNotEmpty
-          ? _parseTimeString(_endTimeController.text)
-          : null;
-
-      // Create the field outing object as draft
-      final outing = FieldOuting(
-        orgId: ref.read(selectedOrgIdProvider),
-        createdByUserId: ref.read(authProvider).user?.id,
-        siteName: _siteNameController.text,
-        otherMembers: _otherMembersController.text.isEmpty
-            ? null
-            : _otherMembersController.text,
-        monitoringType: widget.monitoringType,
-        startTime: startTime,
-        endTime: endTime,
-        isDraft: true,
-        visibility: _visibility,
-        embargoUntil: _embargoUntil,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-
-      final service = ref.read(fieldOutingServiceProvider);
-
-      final snapshot = _buildSnapshot();
-      final childTable = snapshot.childTable;
-      final childRecords = childTable == null ? null : snapshot.toChildRows();
-
-      if (childRecords != null && childTable != null) {
-        if (_currentDraftId != null) {
-          // Update the existing draft in place so repeated saves don't
-          // create duplicates.
-          await service.updateDraftWithChildren(
-              _currentDraftId!, outing, childRecords, childTable);
-        } else {
-          final localId = await service.saveFieldOutingWithChildren(
-              outing, childRecords, childTable);
-          _currentDraftId = await service.getDbIdByLocalId(localId);
-        }
-      } else {
-        final localId = await service.saveFieldOuting(outing);
-        _currentDraftId ??= await service.getDbIdByLocalId(localId);
-      }
-
-      _markClean();
+      await _persistDraft();
 
       if (mounted) {
         showAppSnackBar(context, 'Draft saved!');
