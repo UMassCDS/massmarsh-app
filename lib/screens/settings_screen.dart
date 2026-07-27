@@ -467,14 +467,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     final resuming = pending.length < photos.length;
-    final photoLine = photos.isEmpty
-        ? 'No photos found on this device${day == null ? '' : ' for that day'}.'
-        : resuming
-            ? '${photos.length} photo(s), ${_humanSize(totalBytes)}. '
-                'Carrying on from an upload that stopped: '
-                '${photos.length - pending.length} already sent, '
-                '${pending.length} left (${_humanSize(pendingBytes)}).'
-            : '${photos.length} photo(s), ${_humanSize(totalBytes)}.';
+    String photoLine;
+    if (photos.isNotEmpty) {
+      photoLine = resuming
+          ? '${photos.length} photo(s), ${_humanSize(totalBytes)}. '
+              'Carrying on from an upload that stopped: '
+              '${photos.length - pending.length} already sent, '
+              '${pending.length} left (${_humanSize(pendingBytes)}).'
+          : '${photos.length} photo(s), ${_humanSize(totalBytes)}.';
+    } else if (day == null) {
+      photoLine = 'No photos are stored on this device.';
+    } else {
+      // Never let an empty day read as "everything is gone" without saying how
+      // many photos the device actually holds
+      final onDevice = (await DatabaseExportHelper.allPhotos()).length;
+      photoLine = onDevice == 0
+          ? 'No photos are stored on this device at all.'
+          : 'No photos from that day. This device holds $onDevice photo(s) '
+              'from other dates, so try "Send all data to server" or pick a '
+              'different date.';
+    }
 
     if (!mounted) return null;
     return showDialog<bool>(

@@ -268,15 +268,16 @@ class DatabaseExportHelper {
     }
   }
 
-  // Photos are named <epochMillis>.<ext> at capture time, so the filename is
-  // both the identity and the timestamp. No EXIF parsing needed.
-  static DateTime? photoTakenAt(File file) {
+  // Photos are named <epochMillis>.<ext> at capture time. Falls back to the
+  // file's own timestamp so a photo saved under any other naming scheme still
+  // lands on a date, rather than silently vanishing from every day filter.
+  static Future<DateTime> photoTakenAt(File file) async {
     final millis = int.tryParse(p.basenameWithoutExtension(file.path));
-    return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+    if (millis != null) return DateTime.fromMillisecondsSinceEpoch(millis);
+    return file.lastModified();
   }
 
-  /// Photos on the device, newest first. Pass [day] to limit to one date.
-  static Future<List<File>> photosForDay(DateTime? day) async {
+  static Future<List<File>> allPhotos() async {
     final dir = await _photosDirectory();
     if (!await dir.exists()) return [];
 
@@ -284,21 +285,30 @@ class DatabaseExportHelper {
     await for (final entity in dir.list()) {
       if (entity is File) files.add(entity);
     }
+    return files;
+  }
+
+  /// Photos on the device, newest first. Pass [day] to limit to one date.
+  static Future<List<File>> photosForDay(DateTime? day) async {
+    final files = await allPhotos();
+
+    final takenAt = <String, DateTime>{};
+    for (final f in files) {
+      takenAt[f.path] = await photoTakenAt(f);
+    }
 
     final filtered = day == null
         ? files
         : files.where((f) {
-            final taken = photoTakenAt(f);
-            return taken != null &&
-                taken.year == day.year &&
+            final taken = takenAt[f.path]!;
+            return taken.year == day.year &&
                 taken.month == day.month &&
                 taken.day == day.day;
           }).toList();
 
-    // Name as tiebreak so an interrupted run re-batches identically on resume
+    // Path as tiebreak so an interrupted run re-batches identically on resume
     filtered.sort((a, b) {
-      final byTime = (photoTakenAt(b)?.millisecondsSinceEpoch ?? 0)
-          .compareTo(photoTakenAt(a)?.millisecondsSinceEpoch ?? 0);
+      final byTime = takenAt[b.path]!.compareTo(takenAt[a.path]!);
       return byTime != 0 ? byTime : a.path.compareTo(b.path);
     });
     return filtered;
