@@ -287,6 +287,13 @@ class FieldOutingService {
     return result.map((row) => FieldOuting.fromMap(row)).toList();
   }
 
+  // Same org/account scoping as getDrafts(), plus monitoring type, so
+  // tapping a monitoring card can offer to resume the relevant draft only
+  Future<List<FieldOuting>> getDraftsByType(String monitoringType) async {
+    final drafts = await getDrafts();
+    return drafts.where((d) => d.monitoringType == monitoringType).toList();
+  }
+
   Future<void> deleteDraft(int id) async {
     final db = await ref.read(appDatabaseProvider.future);
     final database = await db.database;

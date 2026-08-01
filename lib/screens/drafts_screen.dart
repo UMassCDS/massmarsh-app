@@ -7,19 +7,27 @@ import '../utils/snackbar_utils.dart';
 import 'form_screen.dart';
 
 class DraftsScreen extends ConsumerWidget {
-  const DraftsScreen({super.key});
+  final String? monitoringTypeFilter;
+
+  const DraftsScreen({super.key, this.monitoringTypeFilter});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final outingService = ref.read(fieldOutingServiceProvider);
+    final filter = monitoringTypeFilter;
+    final title = filter == null
+        ? 'Saved Drafts'
+        : '${filter[0].toUpperCase()}${filter.substring(1)} Drafts';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Saved Drafts'),
+        title: Text(title),
         centerTitle: true,
       ),
       body: FutureBuilder<List<FieldOuting>>(
-        future: outingService.getDrafts(),
+        future: filter == null
+            ? outingService.getDrafts()
+            : outingService.getDraftsByType(filter),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
