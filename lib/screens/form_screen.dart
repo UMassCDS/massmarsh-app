@@ -19,6 +19,8 @@ import '../services/protocol_service.dart';
 import '../utils/id_utils.dart';
 import '../utils/snackbar_utils.dart';
 
+enum _AutosaveStatus { idle, saving, saved, error }
+
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
   final int? draftId;
@@ -99,6 +101,8 @@ class _FormScreenState extends ConsumerState<FormScreen>
   final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
 
   late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
+
+  _AutosaveStatus _autosaveStatus = _AutosaveStatus.idle;
 
   void _onEdited() {
     if (!_isDirty) return;
@@ -581,7 +585,44 @@ class _FormScreenState extends ConsumerState<FormScreen>
     }
   }
 
+  Widget? _buildAutosaveIndicator() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final IconData icon;
+    final String label;
+    final Color color;
+
+    switch (_autosaveStatus) {
+      case _AutosaveStatus.idle:
+        return null;
+      case _AutosaveStatus.saving:
+        icon = Icons.sync;
+        label = 'Saving to device…';
+        color = colorScheme.onSurface.withValues(alpha: 0.6);
+      case _AutosaveStatus.saved:
+        icon = Icons.check_circle_outline;
+        label = 'Saved on this device';
+        color = colorScheme.onSurface.withValues(alpha: 0.6);
+      case _AutosaveStatus.error:
+        icon = Icons.error_outline;
+        label = 'Not saved yet, retrying…';
+        color = colorScheme.error;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionBar() {
+    final indicator = _buildAutosaveIndicator();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -590,30 +631,37 @@ class _FormScreenState extends ConsumerState<FormScreen>
           BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
-            child: FilledButton.icon(
-              onPressed: () => _saveDraft(context, ref),
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('Save Draft'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+          ?indicator,
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: FilledButton.icon(
+                  onPressed: () => _saveDraft(context, ref),
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save Draft'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: OutlinedButton.icon(
-              onPressed: () => _endSessionWithConfirm(context, ref),
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('End Session'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: OutlinedButton.icon(
+                  onPressed: () => _endSessionWithConfirm(context, ref),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('End Session'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -671,7 +719,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
         title: Text(title),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_upload),
+            icon: const Icon(Icons.save_outlined),
             tooltip: 'Save Draft',
             onPressed: () => _saveDraft(context, ref),
           ),
@@ -1517,10 +1565,19 @@ class _FormScreenState extends ConsumerState<FormScreen>
     }
   }
 
+  // Shared by the manual Save Draft button and autosave, so both drive the
+  // same status indicator instead of tracking it separately
   Future<void> _persistDraft() async {
-    final captured = _captureDraft();
-    await _writeDraft(captured);
-    _markClean();
+    if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.saving);
+    try {
+      final captured = _captureDraft();
+      await _writeDraft(captured);
+      _markClean();
+      if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.saved);
+    } catch (e) {
+      if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.error);
+      rethrow;
+    }
   }
 
   Future<bool> _saveDraft(BuildContext context, WidgetRef ref, {bool navigateAway = false}) async {
