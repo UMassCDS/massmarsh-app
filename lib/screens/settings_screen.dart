@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
@@ -22,6 +26,13 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _uploading = false;
   double _uploadProgress = 0;
+  String? _phase;
+
+  static const _batchBytes = 40 * 1024 * 1024;
+
+  String get _statusLine => _phase == null
+      ? ''
+      : '$_phase ${(_uploadProgress * 100).toStringAsFixed(0)}%';
 
   @override
   Widget build(BuildContext context) {
@@ -248,23 +259,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SectionHeader(label: 'Data'),
           const SizedBox(height: 8),
           Card(
-            child: ListTile(
-              leading: _DataTileIcon(
-                icon: Icons.cloud_upload_outlined,
-                busy: _uploading,
-              ),
-              title: Text('Send all data to server',
-                  style: textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
-              subtitle: Text(
-                _uploading
-                    ? 'Uploading ${(_uploadProgress * 100).toStringAsFixed(0)}%'
-                    : 'Upload this device\'s data so an admin can '
-                        'download it remotely',
-                style: textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: 0.55)),
-              ),
-              onTap: _uploading ? null : _sendToServer,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.cloud_upload_outlined,
+                    busy: _uploading,
+                  ),
+                  title: Text('Send all data to server',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    _uploading
+                        ? _statusLine
+                        : 'Everything on this device. Photos are sent in '
+                            'batches you can stop and resume.',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _uploading ? null : _sendAll,
+                ),
+                Divider(
+                  height: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                ),
+                ListTile(
+                  leading: _DataTileIcon(
+                    icon: Icons.event_outlined,
+                    busy: false,
+                  ),
+                  title: Text('Send data from one day',
+                      style: textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    'Pick a date. Much quicker when you only need one day.',
+                    style: textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurface.withValues(alpha: 0.55)),
+                  ),
+                  onTap: _uploading ? null : _sendOneDay,
+                ),
+              ],
             ),
           ),
 
@@ -311,105 +347,209 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<bool?> _confirmSend() {
-    return showDialog<bool>(
+  Future<void> _sendAll() => _send(null);
+
+  Future<void> _sendOneDay() async {
+    final day = await showDatePicker(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Send data to server?'),
-        content: const Text(
-          'This sends a copy of this device\'s data to the server so an admin '
-          'can review it. Nothing on this device is changed or deleted.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Continue'),
-          ),
-        ],
-      ),
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2025),
+      lastDate: DateTime.now(),
+      helpText: 'Send data from',
     );
+    if (day == null) return;
+    await _send(day);
   }
 
-  Future<void> _sendToServer() async {
-    setState(() => _uploading = true);
+  // One path for both buttons: data as one small upload, photos in batches
+  Future<void> _send(DateTime? day) async {
+    setState(() {
+      _uploading = true;
+      _uploadProgress = 0;
+      _phase = 'Preparing';
+    });
+
     try {
+      await WakelockPlus.enable();
+
+      final scope = DatabaseExportHelper.scopeLabel(day);
+
       final summary = await DatabaseExportHelper.inspect();
+      final photos = await DatabaseExportHelper.photosForDay(day);
+      final resumable = await DatabaseExportHelper.resumableFor(scope);
+      final pending = photos
+          .where((f) => !resumable.contains(p.basename(f.path)))
+          .toList();
       if (!mounted) return;
 
-      if (await _confirmSend() != true) return;
-      if (!mounted) return;
+      final withPhotos = await _askScope(day, pending);
+      if (withPhotos == null) return;
 
-      final includePhotos = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Include photos?'),
-          content: Text(
-            'Photos are ${(summary.photoBytes / (1024 * 1024)).toStringAsFixed(0)} MB. '
-            'Sending the data on its own is much faster on a weak connection, '
-            'and is enough to tell whether the records survived.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Data only'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Data + photos'),
-            ),
-          ],
-        ),
-      );
-      if (includePhotos == null) return;
-
-      final bundle = await DatabaseExportHelper.buildBundle(
-        summary,
-        includePhotos: includePhotos,
-      );
-
-      final result = await SyncService.instance.uploadRecoveryBundle(
+      setState(() => _phase = 'Sending data');
+      final bundle = await DatabaseExportHelper.buildBundle(summary, scope);
+      final dataResult = await SyncService.instance.uploadRecoveryBundle(
         bundle.path,
         onProgress: (sent, total) {
           if (!mounted || total <= 0) return;
           setState(() => _uploadProgress = sent / total);
         },
       );
+      if (await bundle.exists()) await bundle.delete();
 
-      if (!mounted) return;
-      if (result.success) {
-        showAppSnackBar(
-          context,
-          'Sent to server as ${result.name}',
-          duration: const Duration(seconds: 6),
-        );
+      if (!dataResult.success) {
+        _report('Data upload failed: ${dataResult.error}', isError: true);
+        return;
+      }
+
+      if (!withPhotos || photos.isEmpty) {
+        _report('Data sent.');
+        return;
+      }
+
+      if (pending.isEmpty) {
+        // Every photo went up on a previous attempt, so the run is finished
+        await DatabaseExportHelper.clearRunState();
+        _report('Data sent. Photos were already finished.');
+        return;
+      }
+
+      final sent = await _uploadPhotoBatches(pending, scope);
+      if (sent.failure == null) {
+        // Run complete: forget the progress so the next upload sends it all
+        await DatabaseExportHelper.clearRunState();
+        _report('Data sent, plus ${sent.count} photo(s) '
+            '(${_humanSize(sent.bytes)}).');
       } else {
-        showAppSnackBar(
-          context,
-          'Upload failed: ${result.error}. Use "Export all data" instead.',
-          backgroundColor: Theme.of(context).colorScheme.error,
-          duration: const Duration(seconds: 8),
-        );
+        _report(
+            'Data sent, plus ${sent.count} photo(s), then stopped: '
+            '${sent.failure}. Start it again to carry on.',
+            isError: true);
       }
     } catch (e) {
-      if (mounted) {
-        showAppSnackBar(
-          context,
-          'Upload failed: $e',
-          backgroundColor: Theme.of(context).colorScheme.error,
-          duration: const Duration(seconds: 5),
-        );
-      }
+      _report('Upload failed: $e', isError: true);
     } finally {
+      await WakelockPlus.disable();
       if (mounted) {
         setState(() {
           _uploading = false;
           _uploadProgress = 0;
+          _phase = null;
         });
       }
+    }
+  }
+
+  static String _humanSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '$bytes B';
+  }
+
+  // Deliberately shows no photo count or size here. Whoever runs this may be
+  // in the field with no one to interpret a number for them, and a low or
+  // zero count before anything has even been sent reads as data loss when it
+  // usually just means "wrong date" or "not taken yet". The real numbers go
+  // into the after-the-fact report and the summary the admin receives.
+  Future<bool?> _askScope(DateTime? day, List<File> pending) async {
+    final what = day == null
+        ? 'everything on this device'
+        : 'the database plus photos from '
+            '${day.month}/${day.day}/${day.year}';
+    final resuming = pending.isNotEmpty &&
+        (await DatabaseExportHelper.resumableFor(
+                DatabaseExportHelper.scopeLabel(day)))
+            .isNotEmpty;
+
+    if (!mounted) return null;
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Send to server?'),
+        content: Text(
+          'This sends $what so an admin can review it. Nothing on this '
+          'device is changed or deleted.\n\n'
+          '${resuming ? 'Continuing a previous upload that stopped partway. ' : ''}'
+          'Photos go in small batches. If this stops partway you can start it '
+          'again and it will pick up where it left off.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(null),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Data only'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Data + photos'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<({int count, int bytes, String? failure})> _uploadPhotoBatches(
+      List<File> pending, String scope) async {
+    final batches = await DatabaseExportHelper.batchBySize(pending, _batchBytes);
+    var count = 0;
+    var bytes = 0;
+
+    for (var i = 0; i < batches.length; i++) {
+      if (mounted) {
+        setState(() {
+          _uploadProgress = 0;
+          _phase = 'Photos ${i + 1} of ${batches.length}';
+        });
+      }
+
+      final zip = await DatabaseExportHelper.buildPhotoBatch(
+          batches[i], scope, i + 1, batches.length);
+      try {
+        final result = await SyncService.instance.uploadRecoveryBundle(
+          zip.path,
+          onProgress: (sent, total) {
+            if (!mounted || total <= 0) return;
+            setState(() => _uploadProgress = sent / total);
+          },
+        );
+        if (!result.success) {
+          return (count: count, bytes: bytes, failure: result.error);
+        }
+      } finally {
+        if (await zip.exists()) await zip.delete();
+      }
+
+      // Recorded before any mounted check, so leaving the screen cannot lose
+      // the fact that these are safely on the server
+      await DatabaseExportHelper.recordRunProgress(
+          scope, batches[i].map((f) => p.basename(f.path)));
+      count += batches[i].length;
+      for (final f in batches[i]) {
+        bytes += await f.length();
+      }
+    }
+
+    return (count: count, bytes: bytes, failure: null);
+  }
+
+  void _report(String message, {bool isError = false}) {
+    if (!mounted) return;
+    if (isError) {
+      showAppSnackBar(
+        context,
+        message,
+        backgroundColor: Theme.of(context).colorScheme.error,
+        duration: const Duration(seconds: 8),
+      );
+    } else {
+      showAppSnackBar(context, message, duration: const Duration(seconds: 6));
     }
   }
 

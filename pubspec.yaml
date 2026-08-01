@@ -2,7 +2,7 @@ name: mass_marsh_app
 description: "Salt Marsh Data - mobile app for salt marsh field data collection and sync."
 publish_to: 'none'
 
-version: 0.6.1+9
+version: 0.6.2+10
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -55,6 +55,7 @@ dependencies:
 
   # Background tasks
   workmanager: ^0.9.0+3
+  wakelock_plus: ^1.2.8
 
   # JSON serialization
   json_annotation: ^4.9.0

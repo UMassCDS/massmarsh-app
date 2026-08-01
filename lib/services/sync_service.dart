@@ -770,8 +770,7 @@ class SyncService {
     }
   }
 
-  /// Sends a recovery bundle to the server so an admin can pull the device's
-  /// data without physical access to the tablet.
+  // Lets an admin pull a device's data without physical access to it
   Future<({bool success, String? name, String? error})> uploadRecoveryBundle(
     String bundlePath, {
     void Function(int sent, int total)? onProgress,

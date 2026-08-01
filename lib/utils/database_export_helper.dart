@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -90,8 +91,7 @@ class DatabaseExportHelper {
     return counts;
   }
 
-  /// Deliberately unscoped by user and org - this is the view that shows rows
-  /// the normal screens filter out.
+  // Deliberately unscoped by user and org, unlike every other query in the app
   static Future<RecoverySummary> inspect() async {
     final db = await AppDatabase.instance.database;
     final tableCounts = await _tableCounts(db);
@@ -196,19 +196,26 @@ class DatabaseExportHelper {
     return buffer.toString();
   }
 
-  /// Bundles the database, a plain-text report and optionally every photo.
-  /// Photos are excluded for uploads over a field hotspot, where the database
-  /// alone answers whether the data survived.
-  static Future<File> buildBundle(
-    RecoverySummary summary, {
-    bool includePhotos = true,
-  }) async {
+  // "ALL" rather than a date, so scope is never left to be inferred
+  static String scopeLabel(DateTime? day) {
+    if (day == null) return 'ALL';
+    final y = day.year.toString().padLeft(4, '0');
+    final m = day.month.toString().padLeft(2, '0');
+    final d = day.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  // Time only, not a date, so "for X at Y" never reads as two dates
+  static String _exportedAtLabel() {
+    final now = DateTime.now();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+  }
+
+  // Never bundles photos - those upload separately in batches, since one
+  // large request is what the server was cutting off
+  static Future<File> buildBundle(RecoverySummary summary, String scope) async {
     final docsDir = await getApplicationDocumentsDirectory();
-    final stamp = DateTime.now()
-        .toIso8601String()
-        .split('.')
-        .first
-        .replaceAll(RegExp(r'[:T]'), '-');
 
     final stagingDir = Directory(p.join(docsDir.path, 'recovery_staging'));
     if (await stagingDir.exists()) await stagingDir.delete(recursive: true);
@@ -220,8 +227,9 @@ class DatabaseExportHelper {
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
 
-      final suffix = includePhotos ? '' : '-db-only';
-      final zipPath = p.join(docsDir.path, 'saltmarsh-recovery-$stamp$suffix.zip');
+      final zipPath = p.join(
+          docsDir.path,
+          'saltmarsh-database-for-$scope-at-${_exportedAtLabel()}.zip');
       final zipFile = File(zipPath);
       if (await zipFile.exists()) await zipFile.delete();
 
@@ -232,12 +240,6 @@ class DatabaseExportHelper {
           if (entity is File) {
             await encoder.addFile(entity, p.basename(entity.path));
           }
-        }
-        // Zipped straight from the live folder so a second full-size copy of
-        // every photo is never written to a tablet that may be near full
-        final photosDir = await _photosDirectory();
-        if (includePhotos && await photosDir.exists()) {
-          await encoder.addDirectory(photosDir, includeDirName: true);
         }
       } finally {
         await encoder.close();
@@ -265,6 +267,140 @@ class DatabaseExportHelper {
     } finally {
       await AppDatabase.instance.database;
     }
+  }
+
+  // Photos are named <epochMillis>.<ext> at capture time. Falls back to the
+  // file's own timestamp so a photo saved under any other naming scheme still
+  // lands on a date, rather than silently vanishing from every day filter.
+  static Future<DateTime> photoTakenAt(File file) async {
+    final millis = int.tryParse(p.basenameWithoutExtension(file.path));
+    if (millis != null) return DateTime.fromMillisecondsSinceEpoch(millis);
+    return file.lastModified();
+  }
+
+  static Future<List<File>> allPhotos() async {
+    final dir = await _photosDirectory();
+    if (!await dir.exists()) return [];
+
+    final files = <File>[];
+    await for (final entity in dir.list()) {
+      if (entity is File) files.add(entity);
+    }
+    return files;
+  }
+
+  /// Photos on the device, newest first. Pass [day] to limit to one date.
+  static Future<List<File>> photosForDay(DateTime? day) async {
+    final files = await allPhotos();
+
+    final takenAt = <String, DateTime>{};
+    for (final f in files) {
+      takenAt[f.path] = await photoTakenAt(f);
+    }
+
+    final filtered = day == null
+        ? files
+        : files.where((f) {
+            final taken = takenAt[f.path]!;
+            return taken.year == day.year &&
+                taken.month == day.month &&
+                taken.day == day.day;
+          }).toList();
+
+    // Path as tiebreak so an interrupted run re-batches identically on resume
+    filtered.sort((a, b) {
+      final byTime = takenAt[b.path]!.compareTo(takenAt[a.path]!);
+      return byTime != 0 ? byTime : a.path.compareTo(b.path);
+    });
+    return filtered;
+  }
+
+  static Future<File> _runStateFile() async {
+    final docs = await getApplicationDocumentsDirectory();
+    return File(p.join(docs.path, 'photo_upload_run.json'));
+  }
+
+  // Cleared once a run completes, so the next upload sends everything again
+  static Future<Set<String>> resumableFor(String scope) async {
+    final file = await _runStateFile();
+    if (!await file.exists()) return {};
+    try {
+      final decoded =
+          jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      if (decoded['scope'] != scope) return {};
+      return (decoded['sent'] as List<dynamic>)
+          .map((e) => e.toString())
+          .toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> recordRunProgress(
+    String scope,
+    Iterable<String> names,
+  ) async {
+    final file = await _runStateFile();
+    final sent = await resumableFor(scope)
+      ..addAll(names);
+    await file.writeAsString(
+        jsonEncode({'scope': scope, 'sent': sent.toList()}));
+  }
+
+  static Future<void> clearRunState() async {
+    final file = await _runStateFile();
+    if (await file.exists()) await file.delete();
+  }
+
+  static Future<List<List<File>>> batchBySize(
+    List<File> files,
+    int maxBytes,
+  ) async {
+    final batches = <List<File>>[];
+    var current = <File>[];
+    var size = 0;
+
+    for (final file in files) {
+      final length = await file.length();
+      if (current.isNotEmpty && size + length > maxBytes) {
+        batches.add(current);
+        current = [];
+        size = 0;
+      }
+      current.add(file);
+      size += length;
+    }
+    if (current.isNotEmpty) batches.add(current);
+
+    return batches;
+  }
+
+  // One batch at a time: zipping everything up front would need a second
+  // copy of every photo, on a tablet that may not have the space
+  static Future<File> buildPhotoBatch(
+    List<File> photos,
+    String scope,
+    int index,
+    int total,
+  ) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final path = p.join(
+        docs.path, 'saltmarsh-photos-$scope-${index}of$total.zip');
+    final existing = File(path);
+    if (await existing.exists()) await existing.delete();
+
+    final encoder = ZipFileEncoder();
+    // Stored, not deflated: JPEGs do not compress, so it would burn battery
+    encoder.create(path, level: ZipFileEncoder.store);
+    try {
+      for (final photo in photos) {
+        await encoder.addFile(photo, p.basename(photo.path));
+      }
+    } finally {
+      await encoder.close();
+    }
+
+    return File(path);
   }
 
   /// Replaces the current database. Caller must confirm with the user first.
