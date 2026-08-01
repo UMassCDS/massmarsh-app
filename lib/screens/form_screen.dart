@@ -374,6 +374,13 @@ class _FormScreenState extends ConsumerState<FormScreen>
               )).toList();
             }
             
+            // photoPath alone isn't enough - the thumbnail renders off
+            // photoFile, which a freshly loaded draft never had a chance to set
+            final photoPath = record['photo_local_path'] as String?;
+            final photoFile = photoPath != null && File(photoPath).existsSync()
+                ? File(photoPath)
+                : null;
+
             return PlotData(
               localId: record['local_id'] as String?,
               transectId: record['transect_id'] as String? ?? '',
@@ -388,7 +395,8 @@ class _FormScreenState extends ConsumerState<FormScreen>
               thatchHeight: (record['thatch_height_m'] as num?)?.toDouble() ?? 0.0,
               elevation: (record['elevation_m'] as num?)?.toDouble(),
               notes: record['notes'] as String?,
-              photoPath: record['photo_local_path'] as String?,
+              photoPath: photoPath,
+              photoFile: photoFile,
               species: species,
               subclass: record['subclass'] as String?,
               rtkPointNumber: record['rtk_point_number'] as String?,
