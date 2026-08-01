@@ -11,10 +11,24 @@ class OrgSelectionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final orgsAsync = ref.watch(myOrgsProvider);
     final colorScheme = Theme.of(context).colorScheme;
+    final user = ref.watch(authProvider).user;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Organization'),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Select Organization'),
+            if (user != null)
+              Text(
+                'Signed in as ${user.fullName}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.6),
+                      fontWeight: FontWeight.normal,
+                    ),
+              ),
+          ],
+        ),
         centerTitle: true,
         actions: [
           IconButton(
