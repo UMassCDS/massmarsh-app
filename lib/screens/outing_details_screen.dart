@@ -516,7 +516,7 @@ class _RecordCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: Image.file(file, fit: BoxFit.cover),
+                    child: Image.file(file, fit: BoxFit.cover, cacheWidth: 800),
                   ),
                 );
               }),

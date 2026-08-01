@@ -1052,6 +1052,10 @@ class _FormScreenState extends ConsumerState<FormScreen>
                     height: 200,
                     width: double.infinity,
                     fit: BoxFit.cover,
+                    // The file on disk stays full-resolution; only the
+                    // decoded-for-display copy is downsized, since a 12MP
+                    // photo decoded per plot is what likely OOM'd the app
+                    cacheWidth: 800,
                   ),
                   Positioned(
                     top: 8,
