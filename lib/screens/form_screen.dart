@@ -102,6 +102,21 @@ class _FormScreenState extends ConsumerState<FormScreen>
   // Held for the life of the form so autosave updates one hydrology/elevation row
   final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
 
+  // Null defaults to the last plot in the list, so a fresh session or a
+  // just-added plot is expanded without needing to set this explicitly
+  // every time _plots changes
+  String? _expandedPlotLocalId;
+  final Map<String, GlobalKey> _plotCardKeys = {};
+
+  GlobalKey _keyFor(PlotData plot) =>
+      _plotCardKeys.putIfAbsent(plot.localId, () => GlobalKey());
+
+  bool _isPlotExpanded(PlotData plot) {
+    final expandedId =
+        _expandedPlotLocalId ?? (_plots.isEmpty ? null : _plots.last.localId);
+    return plot.localId == expandedId;
+  }
+
   late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
 
   _AutosaveStatus _autosaveStatus = _AutosaveStatus.idle;
@@ -735,49 +750,77 @@ class _FormScreenState extends ConsumerState<FormScreen>
           ),
         ],
       ),
+      floatingActionButton: widget.monitoringType == 'vegetation'
+          ? FloatingActionButton(
+              onPressed: _addNewPlot,
+              tooltip: 'Add New Plot',
+              child: const Icon(Icons.add),
+            )
+          : null,
       body: Column(
         children: [
           _buildActionBar(),
           Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: EdgeInsets.fromLTRB(
-                16, 16, 16,
-                16 + MediaQuery.paddingOf(context).bottom,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Form(
-                    key: _formKey,
-                    onChanged: _onEdited,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // COMMON FIELDS FOR ALL FORMS
-                        _buildSectionHeader('Field Session Information'),
-                        _buildReadOnlyField(
-                          'Observer',
-                          ref.watch(authProvider).user?.fullName ?? '',
-                          Icons.person,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Form(
+                  key: _formKey,
+                  onChanged: _onEdited,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // COMMON FIELDS FOR ALL FORMS
+                              _buildSectionHeader('Field Session Information'),
+                              _buildReadOnlyField(
+                                'Observer',
+                                ref.watch(authProvider).user?.fullName ?? '',
+                                Icons.person,
+                              ),
+                              _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
+                              _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
+                              _buildTimeField(_startTimeController, 'Start Time'),
+                              _buildTimeField(_endTimeController, 'End Time'),
+                              _buildVisibilitySelector(),
+
+                              const SizedBox(height: 24),
+
+                              if (widget.monitoringType == 'vegetation')
+                                _buildVegetationSectionHeader()
+                              else if (widget.monitoringType == 'hydrology')
+                                _buildHydrologyForm()
+                              else if (widget.monitoringType == 'elevation')
+                                _buildElevationForm(),
+                            ],
+                          ),
                         ),
-                        _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
-                        _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
-                        _buildTimeField(_startTimeController, 'Start Time'),
-                        _buildTimeField(_endTimeController, 'End Time'),
-                        _buildVisibilitySelector(),
-
-                        const SizedBox(height: 24),
-
-                        // MONITORING TYPE SPECIFIC FIELDS
-                        if (widget.monitoringType == 'vegetation')
-                          _buildVegetationForm()
-                        else if (widget.monitoringType == 'hydrology')
-                          _buildHydrologyForm()
-                        else if (widget.monitoringType == 'elevation')
-                          _buildElevationForm(),
-                      ],
-                    ),
+                      ),
+                      // Only the plot list is a lazy sliver: with 50+ plots
+                      // fully expanded, the old eager Column built every
+                      // field and controller for all of them at once
+                      if (widget.monitoringType == 'vegetation')
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverList.builder(
+                            itemCount: _plots.length,
+                            itemBuilder: (context, index) =>
+                                _buildPlotEntry(index, _plots[index]),
+                          ),
+                        ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 16 +
+                              MediaQuery.paddingOf(context).bottom +
+                              (widget.monitoringType == 'vegetation' ? 72 : 0),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -789,7 +832,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
     );
   }
 
-  Widget _buildVegetationForm() {
+  Widget _buildVegetationSectionHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -799,67 +842,131 @@ class _FormScreenState extends ConsumerState<FormScreen>
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 12),
-
-        // List of plots
-        ..._plots.asMap().entries.map((entry) {
-          int index = entry.key;
-          PlotData plot = entry.value;
-          return _buildPlotCard(index, plot);
-        }),
-
-        const SizedBox(height: 12),
-
-        // Add new plot button
-        OutlinedButton.icon(
-          onPressed: () {
-            setState(() {
-              final plotNum = _nextPlotNumber;
-              final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
-
-              // Continue the previous plot's ID pattern when it ends in a
-              // number (plotHELLO_001 -> plotHELLO_002); otherwise fall back
-              // to transect_number generation.
-              String? autoPlotId;
-              var inheritedManualId = false;
-              if (_plots.isNotEmpty) {
-                final prev = _plots.last;
-                autoPlotId = incrementTrailingNumber(prev.plotId);
-                inheritedManualId = autoPlotId != null && prev.plotIdManuallySet;
-              }
-
-              // Auto-increment RTK point number if the protocol uses it,
-              // continuing whatever format the last non-empty value used.
-              String? autoRtk;
-              if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
-                final prevRtk = _plots
-                    .map((p) => p.rtkPointNumber?.trim() ?? '')
-                    .lastWhere((v) => v.isNotEmpty, orElse: () => '');
-                autoRtk = prevRtk.isEmpty ? '1' : incrementTrailingNumber(prevRtk);
-              }
-
-              _plots.add(PlotData(
-                transectId: transectId,
-                plotNumber: plotNum,
-                plotId: autoPlotId ?? _generatePlotId(transectId, plotNum),
-                plotIdManuallySet: inheritedManualId,
-                habitatType: '',
-                distanceAlongTransect: 0,
-                latitude: 0,
-                longitude: 0,
-                canopyHeight: 0,
-                thatchHeight: 0,
-                species: [],
-                rtkPointNumber: autoRtk,
-                pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
-              ));
-            });
-            _onEdited();
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Add New Plot'),
-        ),
       ],
     );
+  }
+
+  Widget _buildPlotEntry(int index, PlotData plot) {
+    return KeyedSubtree(
+      key: _keyFor(plot),
+      child: _isPlotExpanded(plot)
+          ? _buildPlotCard(index, plot)
+          : _buildCollapsedPlotSummary(plot),
+    );
+  }
+
+  Widget _buildCollapsedPlotSummary(PlotData plot) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final label = plot.plotId.isNotEmpty
+        ? plot.plotId
+        : 'Plot ${plot.plotNumber}';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() => _expandedPlotLocalId = plot.localId),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              if (plot.photoFile != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.file(
+                      plot.photoFile!,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      cacheWidth: 80,
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Plot ${plot.plotNumber} · $label',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis),
+                    if (plot.species.isNotEmpty)
+                      Text('${plot.species.length} species recorded',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              )),
+                  ],
+                ),
+              ),
+              Icon(Icons.expand_more, color: colorScheme.onSurface.withValues(alpha: 0.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _addNewPlot() {
+    late final PlotData newPlot;
+    setState(() {
+      final plotNum = _nextPlotNumber;
+      final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
+
+      // Continue the previous plot's ID pattern when it ends in a
+      // number (plotHELLO_001 -> plotHELLO_002); otherwise fall back
+      // to transect_number generation.
+      String? autoPlotId;
+      var inheritedManualId = false;
+      if (_plots.isNotEmpty) {
+        final prev = _plots.last;
+        autoPlotId = incrementTrailingNumber(prev.plotId);
+        inheritedManualId = autoPlotId != null && prev.plotIdManuallySet;
+      }
+
+      // Auto-increment RTK point number if the protocol uses it,
+      // continuing whatever format the last non-empty value used.
+      String? autoRtk;
+      if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
+        final prevRtk = _plots
+            .map((p) => p.rtkPointNumber?.trim() ?? '')
+            .lastWhere((v) => v.isNotEmpty, orElse: () => '');
+        autoRtk = prevRtk.isEmpty ? '1' : incrementTrailingNumber(prevRtk);
+      }
+
+      newPlot = PlotData(
+        transectId: transectId,
+        plotNumber: plotNum,
+        plotId: autoPlotId ?? _generatePlotId(transectId, plotNum),
+        plotIdManuallySet: inheritedManualId,
+        habitatType: '',
+        distanceAlongTransect: 0,
+        latitude: 0,
+        longitude: 0,
+        canopyHeight: 0,
+        thatchHeight: 0,
+        species: [],
+        rtkPointNumber: autoRtk,
+        pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
+      );
+      _plots.add(newPlot);
+      _expandedPlotLocalId = newPlot.localId;
+    });
+    _onEdited();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _keyFor(newPlot).currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Widget _buildPlotCard(int index, PlotData plot) {
@@ -885,7 +992,12 @@ class _FormScreenState extends ConsumerState<FormScreen>
                     icon: const Icon(Icons.delete, color: Colors.red),
                     onPressed: () {
                       setState(() {
-                        _plots.removeAt(index).dispose();
+                        final removed = _plots.removeAt(index);
+                        _plotCardKeys.remove(removed.localId);
+                        if (_expandedPlotLocalId == removed.localId) {
+                          _expandedPlotLocalId = null;
+                        }
+                        removed.dispose();
                       });
                       _onEdited();
                     },
