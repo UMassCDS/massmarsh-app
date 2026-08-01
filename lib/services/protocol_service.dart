@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import 'package:logger/logger.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import '../database/app_database.dart';
+import 'app_logger.dart';
 import 'sync_service.dart';
 
 // ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ class ProtocolService {
   static final ProtocolService instance = ProtocolService._();
   ProtocolService._();
 
-  final _logger = Logger();
+  final _logger = appLogger;
   static const String _apiBase = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'https://massmarsh.azurewebsites.net',

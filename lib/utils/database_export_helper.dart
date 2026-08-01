@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../database/app_database.dart';
+import '../services/app_logger.dart';
 
 class OutingSummary {
   final int? id;
@@ -226,6 +227,9 @@ class DatabaseExportHelper {
 
       final reportFile = File(p.join(stagingDir.path, 'summary.txt'));
       await reportFile.writeAsString(buildReport(summary));
+
+      final logFile = File(p.join(stagingDir.path, 'recent_log.txt'));
+      await logFile.writeAsString(dumpRecentLogs());
 
       final zipPath = p.join(
           docsDir.path,

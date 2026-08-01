@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:logger/logger.dart';
 import '../database/app_database.dart';
+import 'app_logger.dart';
 import 'auth_cache.dart';
 
 class ResyncResult {
@@ -76,7 +77,7 @@ class SyncService {
     _instance ??= SyncService._(
       dio: Dio(),
       db: AppDatabase.instance,
-      logger: Logger(),
+      logger: appLogger,
       connectivity: Connectivity(),
       baseUrl: const String.fromEnvironment(
         'API_BASE_URL',
