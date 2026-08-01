@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:native_exif/native_exif.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -1432,6 +1434,35 @@ class _FormScreenState extends ConsumerState<FormScreen>
     return dest;
   }
 
+  // Redundant with the coordinates already saved on the plot record, but a
+  // photo that carries its own location survives even if that record is lost
+  Future<void> _stampPhotoLocation(String path, int plotIndex) async {
+    try {
+      var lat = _plots[plotIndex].latitude;
+      var lon = _plots[plotIndex].longitude;
+      if (lat == 0 && lon == 0) {
+        final last = await Geolocator.getLastKnownPosition();
+        if (last == null) return;
+        lat = last.latitude;
+        lon = last.longitude;
+      }
+
+      final exif = await Exif.fromPath(path);
+      try {
+        await exif.writeAttributes({
+          'GPSLatitude': lat.abs().toString(),
+          'GPSLatitudeRef': lat >= 0 ? 'N' : 'S',
+          'GPSLongitude': lon.abs().toString(),
+          'GPSLongitudeRef': lon >= 0 ? 'E' : 'W',
+        });
+      } finally {
+        await exif.close();
+      }
+    } catch (_) {
+      // Best-effort only - the database record is the record that matters
+    }
+  }
+
   Future<void> _pickImageFromCamera(int plotIndex) async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -1445,6 +1476,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
         });
         // Flushed rather than scheduled: a photo is expensive to retake
         await _autosave.flush();
+        unawaited(_stampPhotoLocation(permanentPath, plotIndex));
       }
     } catch (e) {
       if (mounted) {
