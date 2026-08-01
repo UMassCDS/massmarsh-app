@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -50,6 +52,17 @@ class AuthNotifier extends Notifier<AuthState> {
   static const _tokenKey = AuthCache.tokenKey;
   static const _storage = FlutterSecureStorage();
 
+  final _readyCompleter = Completer<void>();
+
+  // Resolves once the token is known - not once the network confirms it, so
+  // a dependent provider (org restore) never waits out a full Dio timeout
+  // offline just to learn what it could already tell from the cache
+  Future<void> get ready => _readyCompleter.future;
+
+  void _markReady() {
+    if (!_readyCompleter.isCompleted) _readyCompleter.complete();
+  }
+
   @override
   AuthState build() {
     _tryRestoreSession();
@@ -62,6 +75,7 @@ class AuthNotifier extends Notifier<AuthState> {
     final token = await _storage.read(key: _tokenKey);
     if (token == null) {
       state = const AuthState(isInitialized: true);
+      _markReady();
       return;
     }
 
@@ -75,6 +89,7 @@ class AuthNotifier extends Notifier<AuthState> {
     if (cachedUser != null) {
       state = AuthState(token: token, user: cachedUser, isInitialized: true);
       SyncService.instance.startAutoSync();
+      _markReady();
     }
 
     try {
@@ -104,6 +119,10 @@ class AuthNotifier extends Notifier<AuthState> {
       if (cachedUser == null) state = const AuthState(isInitialized: true);
     } catch (_) {
       if (cachedUser == null) state = const AuthState(isInitialized: true);
+    } finally {
+      // No-op if the cache-hit branch already marked it. Only the no-cache
+      // path reaches here first, since it has no earlier answer to give
+      _markReady();
     }
   }
 

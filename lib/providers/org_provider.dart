@@ -50,6 +50,11 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
   Future<void> _restore() async {
     final savedId = await _storage.read(key: _orgIdKey);
     if (savedId == null) return;
+
+    // Waits for AuthNotifier to know the token first, so this never reads
+    // myOrgsProvider before it's set and silently fails to match every boot
+    await ref.read(authProvider.notifier).ready;
+
     final orgs = await ref.read(myOrgsProvider.future);
     if (state != null) return;
     for (final org in orgs) {
