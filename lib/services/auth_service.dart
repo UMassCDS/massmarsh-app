@@ -25,18 +25,22 @@ class AuthService {
       'password': password,
     });
 
+    // A brand new login response never carries X-Refreshed-Token, since the
+    // token it just issued is already at full freshness
     final token = response.data['access_token'] as String;
     final user = _userFromApiJson(response.data['user'] as Map<String, dynamic>);
     return (token: token, user: user);
   }
 
   /// GET /api/v1/auth/me — validates a stored token and returns the current user.
-  Future<User> getMe(String token) async {
+  /// refreshedToken is set when the server renewed the token on this request.
+  Future<({User user, String? refreshedToken})> getMe(String token) async {
     final response = await _dio.get(
       '/api/v1/auth/me',
       options: Options(headers: {'Authorization': 'Bearer $token'}),
     );
-    return _userFromApiJson(response.data as Map<String, dynamic>);
+    final user = _userFromApiJson(response.data as Map<String, dynamic>);
+    return (user: user, refreshedToken: response.headers.value('x-refreshed-token'));
   }
 
   /// Maps the API's snake_case user JSON to the app's User model (camelCase).

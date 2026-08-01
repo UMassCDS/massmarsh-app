@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:logger/logger.dart';
 import '../database/app_database.dart';
+import 'auth_cache.dart';
 
 class ResyncResult {
   final bool alreadyOnServer;
@@ -105,6 +106,11 @@ class SyncService {
         },
         onResponse: (response, handler) {
           _logger.d('Response: ${response.statusCode} ${response.requestOptions.path}');
+          final refreshed = response.headers.value('x-refreshed-token');
+          if (refreshed != null && refreshed != _authToken) {
+            _authToken = refreshed;
+            AuthCache.updateToken(refreshed);
+          }
           return handler.next(response);
         },
         onError: (error, handler) {

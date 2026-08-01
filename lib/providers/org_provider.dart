@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/organization/organization.dart';
+import '../services/auth_cache.dart';
 import '../services/org_service.dart';
 import 'auth_provider.dart';
 
@@ -14,11 +15,21 @@ final orgServiceProvider = Provider<OrgService>((ref) => OrgService());
 // List of orgs the current user belongs to
 // ---------------------------------------------------------------------------
 
+// Falls back to the cached list when the network call fails, so org
+// selection works with no signal instead of hanging on a request that
+// cannot complete
 final myOrgsProvider = FutureProvider<List<Organization>>((ref) async {
   final auth = ref.watch(authProvider);
   final token = auth.token;
   if (token == null) return [];
-  return ref.read(orgServiceProvider).getMyOrgs(token);
+
+  try {
+    final orgs = await ref.read(orgServiceProvider).getMyOrgs(token);
+    await AuthCache.saveOrgs(orgs);
+    return orgs;
+  } catch (_) {
+    return AuthCache.readOrgs();
+  }
 });
 
 // ---------------------------------------------------------------------------
