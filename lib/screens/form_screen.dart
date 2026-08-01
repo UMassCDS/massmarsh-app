@@ -1126,7 +1126,8 @@ class _FormScreenState extends ConsumerState<FormScreen>
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: DropdownButtonFormField<String>(
-                  value: plot.subclass,
+                  key: ValueKey('subclass_${plot.localId}_${plot.subclass}'),
+                  initialValue: plot.subclass,
                   decoration: const InputDecoration(
                     labelText: 'Subclass',
                     border: OutlineInputBorder(),
