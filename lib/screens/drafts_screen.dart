@@ -7,19 +7,38 @@ import '../utils/snackbar_utils.dart';
 import 'form_screen.dart';
 
 class DraftsScreen extends ConsumerWidget {
-  const DraftsScreen({super.key});
+  final String? monitoringTypeFilter;
+
+  const DraftsScreen({super.key, this.monitoringTypeFilter});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final outingService = ref.read(fieldOutingServiceProvider);
+    final filter = monitoringTypeFilter;
+    final title = filter == null
+        ? 'Saved Drafts'
+        : '${filter[0].toUpperCase()}${filter.substring(1)} Drafts';
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Saved Drafts'),
+        title: Text(title),
         centerTitle: true,
       ),
+      // Only when this screen is reached as the "pick which draft" fallback
+      // for a monitoring type - the unfiltered /drafts route has no single
+      // type to start, so it stays a pure browsing list
+      floatingActionButton: filter == null
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.of(context)
+                  .pushReplacementNamed('/form', arguments: filter),
+              icon: const Icon(Icons.add),
+              label: const Text('Start New'),
+            ),
       body: FutureBuilder<List<FieldOuting>>(
-        future: outingService.getDrafts(),
+        future: filter == null
+            ? outingService.getDrafts()
+            : outingService.getDraftsByType(filter),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());

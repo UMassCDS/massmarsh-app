@@ -10,66 +10,94 @@ class OrgSelectionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final orgsAsync = ref.watch(myOrgsProvider);
+    final cachedOrgs = ref.watch(cachedOrgsProvider).value ?? [];
     final colorScheme = Theme.of(context).colorScheme;
+    final user = ref.watch(authProvider).user;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Select Organization'),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Select Organization'),
+            if (user != null)
+              Text(
+                'Signed in as ${user.fullName}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurface.withValues(alpha: 0.6),
+                      fontWeight: FontWeight.normal,
+                    ),
+              ),
+          ],
+        ),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await ref.read(authProvider.notifier).logout();
-              ref.read(selectedOrgProvider.notifier).clear();
-            },
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
         ],
       ),
       body: orgsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => _ErrorState(
-          message: err.toString(),
-          onRetry: () => ref.invalidate(myOrgsProvider),
-        ),
+        // A cached list already answers "which orgs can I swap to" - no
+        // reason to block that behind the live refresh this state is
+        // waiting on, especially with weak field signal
+        loading: () => cachedOrgs.isNotEmpty
+            ? _OrgList(orgs: cachedOrgs, colorScheme: colorScheme)
+            : const Center(child: CircularProgressIndicator()),
+        error: (err, _) => cachedOrgs.isNotEmpty
+            ? _OrgList(orgs: cachedOrgs, colorScheme: colorScheme)
+            : _ErrorState(
+                message: err.toString(),
+                onRetry: () => ref.invalidate(myOrgsProvider),
+              ),
         data: (orgs) {
           if (orgs.isEmpty) {
             return _EmptyState(onRefresh: () => ref.invalidate(myOrgsProvider));
           }
-
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              // Banner
-              Container(
-                margin: const EdgeInsets.only(bottom: 20, top: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 18, color: colorScheme.onPrimaryContainer),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Choose the organization you are collecting data for.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onPrimaryContainer,
-                            ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ...orgs.map((org) => _OrgTile(org: org)),
-            ],
-          );
+          return _OrgList(orgs: orgs, colorScheme: colorScheme);
         },
       ),
+    );
+  }
+}
+
+class _OrgList extends StatelessWidget {
+  final List<Organization> orgs;
+  final ColorScheme colorScheme;
+  const _OrgList({required this.orgs, required this.colorScheme});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      children: [
+        Container(
+          margin: const EdgeInsets.only(bottom: 20, top: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline,
+                  size: 18, color: colorScheme.onPrimaryContainer),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Choose the organization you are collecting data for.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onPrimaryContainer,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ...orgs.map((org) => _OrgTile(org: org)),
+      ],
     );
   }
 }

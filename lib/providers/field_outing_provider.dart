@@ -4,6 +4,7 @@ import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/app_logger.dart';
 import '../services/sync_service.dart';
 
 // Provide access to the database
@@ -179,8 +180,8 @@ class FieldOutingService {
     return result.first['id'] as int?;
   }
 
-  /// Updates an existing draft in place (preserving its id and created_at)
-  /// and replaces its child records.
+  // Matches child rows on local_id rather than delete-then-reinsert, which
+  // would wipe server_id and orphan anything already uploaded
   Future<void> updateDraftWithChildren(
     int draftId,
     FieldOuting session,
@@ -190,28 +191,56 @@ class FieldOutingService {
     final db = await ref.read(appDatabaseProvider.future);
     final database = await db.database;
 
-    await database.update(
-      'field_outings',
-      {
-        'site_name': session.siteName,
-        'other_members': session.otherMembers,
-        'start_time': session.startTime?.toIso8601String(),
-        'end_time': session.endTime?.toIso8601String(),
-        'visibility': session.visibility,
-        'embargo_until': session.embargoUntil,
-        'updated_at': DateTime.now().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [draftId],
-    );
+    await database.transaction((txn) async {
+      await txn.update(
+        'field_outings',
+        {
+          'site_name': session.siteName,
+          'other_members': session.otherMembers,
+          'start_time': session.startTime?.toIso8601String(),
+          'end_time': session.endTime?.toIso8601String(),
+          'visibility': session.visibility,
+          'embargo_until': session.embargoUntil,
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [draftId],
+      );
 
-    await database.delete(childTable, where: 'outing_id = ?', whereArgs: [draftId]);
-    for (final record in childRecords) {
-      await database.insert(childTable, {
-        ...record,
-        'outing_id': draftId,
-      });
-    }
+      final keptLocalIds = <String>[];
+      for (final record in childRecords) {
+        final row = {...record, 'outing_id': draftId};
+        final localId = row['local_id'] as String?;
+
+        if (localId == null || localId.isEmpty) {
+          await txn.insert(childTable, row);
+          continue;
+        }
+
+        keptLocalIds.add(localId);
+        final updates = Map<String, dynamic>.from(row)..remove('created_at');
+        final updated = await txn.update(
+          childTable,
+          updates,
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+        if (updated == 0) {
+          await txn.insert(childTable, row);
+        }
+      }
+
+      // Rows the user removed from the form, but never one already on the server
+      final placeholders = List.filled(keptLocalIds.length, '?').join(',');
+      await txn.delete(
+        childTable,
+        where: keptLocalIds.isEmpty
+            ? 'outing_id = ? AND server_id IS NULL'
+            : 'outing_id = ? AND server_id IS NULL AND '
+                '(local_id IS NULL OR local_id NOT IN ($placeholders))',
+        whereArgs: [draftId, ...keptLocalIds],
+      );
+    });
 
     _refreshNotifier.increment();
   }
@@ -256,7 +285,15 @@ class FieldOutingService {
       orderBy: 'updated_at DESC',
     );
 
+    appLogger.i('[drafts] query: userId=$userId orgId=$orgId -> ${result.length} row(s)');
     return result.map((row) => FieldOuting.fromMap(row)).toList();
+  }
+
+  // Same org/account scoping as getDrafts(), plus monitoring type, so
+  // tapping a monitoring card can offer to resume the relevant draft only
+  Future<List<FieldOuting>> getDraftsByType(String monitoringType) async {
+    final drafts = await getDrafts();
+    return drafts.where((d) => d.monitoringType == monitoringType).toList();
   }
 
   Future<void> deleteDraft(int id) async {

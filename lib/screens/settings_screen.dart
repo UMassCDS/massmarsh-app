@@ -10,6 +10,7 @@ import '../providers/org_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/sync_service.dart';
 import '../utils/database_export_helper.dart';
+import '../utils/sign_out_confirmation.dart';
 import '../utils/snackbar_utils.dart';
 import 'login_screen.dart';
 
@@ -162,28 +163,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         fontWeight: FontWeight.w600,
                       )),
                   onTap: () async {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: const Text('Sign out?'),
-                        content: const Text(
-                            'You\'ll need to sign in again to access the app.'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(ctx).pop(false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.of(ctx).pop(true),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: colorScheme.error,
-                            ),
-                            child: const Text('Sign out'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true && context.mounted) {
+                    final confirmed = await confirmSignOut(context);
+                    if (confirmed && context.mounted) {
                       ref.read(selectedOrgProvider.notifier).clear();
                       await ref.read(authProvider.notifier).logout();
                       if (context.mounted) {

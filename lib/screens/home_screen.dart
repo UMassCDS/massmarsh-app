@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../providers/auth_provider.dart';
+import '../models/field_outing/field_outing.dart';
+import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/protocol_service.dart';
 import '../services/species_service.dart';
-import 'login_screen.dart';
+import 'drafts_screen.dart';
+import 'form_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +26,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         SpeciesService.instance.fetchAndCache();
       }
     });
+  }
+
+  String _relativeTime(DateTime? time) {
+    if (time == null) return 'a while ago';
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inHours < 1) return '${diff.inMinutes} min ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    if (diff.inDays == 1) return 'yesterday';
+    if (diff.inDays < 7) return '${diff.inDays} days ago';
+    return '${time.month}/${time.day}/${time.year}';
+  }
+
+  void _startNewForm(String monitoringType) {
+    Navigator.of(context).pushNamed('/form', arguments: monitoringType);
+  }
+
+  void _resumeDraft(FieldOuting draft) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => FormScreen(
+        monitoringType: draft.monitoringType,
+        draftId: draft.id,
+      ),
+    ));
+  }
+
+  // A tile only ever offers ONE clear next step: nothing to guess when
+  // there's no draft, exactly one to resume, or too many to pick blindly
+  Future<void> _openMonitoringType(String monitoringType) async {
+    final drafts = await ref
+        .read(fieldOutingServiceProvider)
+        .getDraftsByType(monitoringType);
+
+    if (!mounted) return;
+
+    if (drafts.isEmpty) {
+      _startNewForm(monitoringType);
+      return;
+    }
+
+    if (drafts.length > 1) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => DraftsScreen(monitoringTypeFilter: monitoringType),
+      ));
+      return;
+    }
+
+    final draft = drafts.first;
+    final label = monitoringType[0].toUpperCase() + monitoringType.substring(1);
+    final siteName = draft.siteName.trim().isEmpty ? 'Untitled draft' : draft.siteName;
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Continue $label draft?'),
+        content: Text(
+          'You have an unfinished $label draft for "$siteName", '
+          'last edited ${_relativeTime(draft.updatedAt ?? draft.createdAt)}.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('new'),
+            child: const Text('Start New'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop('continue'),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || choice == null) return;
+    if (choice == 'continue') {
+      _resumeDraft(draft);
+    } else {
+      _startNewForm(monitoringType);
+    }
   }
 
   @override
@@ -69,41 +149,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Sign out'),
-                  content: const Text('Are you sure you want to sign out?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: const Text('Sign out'),
-                    ),
-                  ],
-                ),
-              );
-              if (confirmed == true && context.mounted) {
-                ref.read(selectedOrgProvider.notifier).clear();
-                await ref.read(authProvider.notifier).logout();
-                if (context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  );
-                }
-              }
-            },
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
@@ -176,8 +221,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     description: 'Record plant species, coverage & plot data',
                     icon: Icons.eco,
                     accentColor: const Color(0xFF2E7D32),
-                    onTap: () => Navigator.of(context)
-                        .pushNamed('/form', arguments: 'vegetation'),
+                    onTap: () => _openMonitoringType('vegetation'),
                   ),
                   const SizedBox(height: 10),
 
@@ -186,8 +230,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     description: 'Log water levels, well rim & RTK elevation',
                     icon: Icons.water_drop,
                     accentColor: const Color(0xFF0277BD),
-                    onTap: () => Navigator.of(context)
-                        .pushNamed('/form', arguments: 'hydrology'),
+                    onTap: () => _openMonitoringType('hydrology'),
                   ),
                   const SizedBox(height: 10),
 
@@ -196,8 +239,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     description: 'Capture transect points & NAVD88 elevations',
                     icon: Icons.landscape,
                     accentColor: const Color(0xFF6A3F00),
-                    onTap: () => Navigator.of(context)
-                        .pushNamed('/form', arguments: 'elevation'),
+                    onTap: () => _openMonitoringType('elevation'),
                   ),
 
                   // ── Quick links ──────────────────────────────────────

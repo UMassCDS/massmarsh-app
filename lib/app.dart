@@ -134,6 +134,7 @@ class MassMarshApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
     final selectedOrg = ref.watch(selectedOrgProvider);
+    final orgRestored = ref.watch(orgRestoredProvider);
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
@@ -142,7 +143,7 @@ class MassMarshApp extends ConsumerWidget {
       darkTheme: _buildTheme(Brightness.dark),
       themeMode: themeMode,
       debugShowCheckedModeBanner: false,
-      home: _resolveHome(auth, selectedOrg),
+      home: _resolveHome(auth, selectedOrg, orgRestored),
       onGenerateRoute: (settings) {
         if (settings.name == '/home') {
           return MaterialPageRoute(
@@ -180,13 +181,23 @@ class MassMarshApp extends ConsumerWidget {
     );
   }
 
-  Widget _resolveHome(AuthState auth, dynamic selectedOrg) {
+  Widget _resolveHome(AuthState auth, dynamic selectedOrg, bool orgRestored) {
     if (!auth.isInitialized) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
     if (!auth.isAuthenticated) return const LoginScreen();
+    // Org restore reads the cached org id then confirms it against a
+    // network call - while that's in flight selectedOrg is null too, so
+    // without this check every boot (and every process restart Android
+    // does behind an external camera/gallery intent) briefly bounces to
+    // the org picker even when an org is actually saved
+    if (!orgRestored) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
     if (selectedOrg == null) return const OrgSelectionScreen();
     return const HomeScreen();
   }

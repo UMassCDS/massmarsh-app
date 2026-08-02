@@ -1,19 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:native_exif/native_exif.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
+import '../models/field_outing/draft_snapshot.dart';
 import '../models/field_outing/field_outing.dart';
+import '../models/field_outing/plot_data.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/draft_autosave.dart';
 import '../services/species_service.dart';
 import '../services/protocol_service.dart';
 import '../utils/id_utils.dart';
+import '../utils/photo_viewer.dart';
 import '../utils/snackbar_utils.dart';
+
+enum _AutosaveStatus { idle, saving, saved, error }
 
 class FormScreen extends ConsumerStatefulWidget {
   final String monitoringType;
@@ -29,97 +38,8 @@ class FormScreen extends ConsumerStatefulWidget {
   ConsumerState<FormScreen> createState() => _FormScreenState();
 }
 
-// Data class for a single species observation
-class SpeciesObservation {
-  String speciesCode;
-  int percentageCover;
-
-  SpeciesObservation({
-    required this.speciesCode,
-    required this.percentageCover,
-  });
-}
-
-// Data class for a plot
-class PlotData {
-  String transectId;
-  int plotNumber;
-  String plotId;
-  bool plotIdManuallySet;
-  String habitatType;
-  double distanceAlongTransect;
-  double latitude;
-  double longitude;
-  double canopyHeight;
-  double thatchHeight;
-  double? elevation;
-  String? notes;
-  File? photoFile;
-  String? photoPath;
-  List<SpeciesObservation> species;
-  String? subclass;
-  String? rtkPointNumber;
-  final TextEditingController latController;
-  final TextEditingController lngController;
-  final TextEditingController plotIdController;
-  final TextEditingController rtkPointNumberController;
-  final Map<String, TextEditingController> pinnedControllers;
-  final Map<String, TextEditingController> extraControllers;
-
-  PlotData({
-    required this.transectId,
-    required this.plotNumber,
-    this.plotId = '',
-    this.plotIdManuallySet = false,
-    required this.habitatType,
-    required this.distanceAlongTransect,
-    required this.latitude,
-    required this.longitude,
-    required this.canopyHeight,
-    required this.thatchHeight,
-    this.elevation,
-    this.notes,
-    this.photoFile,
-    this.photoPath,
-    this.species = const [],
-    this.subclass,
-    this.rtkPointNumber,
-    List<String> pinnedCodes = const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
-  })  : latController = TextEditingController(text: latitude == 0 ? '' : latitude.toString()),
-        lngController = TextEditingController(text: longitude == 0 ? '' : longitude.toString()),
-        plotIdController = TextEditingController(text: plotId),
-        rtkPointNumberController = TextEditingController(text: rtkPointNumber ?? ''),
-        pinnedControllers = Map.fromEntries(
-          pinnedCodes.map((code) {
-            final existing = species.where((s) => s.speciesCode == code);
-            final text = existing.isNotEmpty ? existing.first.percentageCover.toString() : '';
-            return MapEntry(code, TextEditingController(text: text));
-          }),
-        ),
-        extraControllers = Map.fromEntries(
-          species
-              .where((s) => !Set.from(pinnedCodes).contains(s.speciesCode))
-              .map((s) => MapEntry(
-                    s.speciesCode,
-                    TextEditingController(text: s.percentageCover.toString()),
-                  )),
-        );
-
-  void dispose() {
-    latController.dispose();
-    lngController.dispose();
-    plotIdController.dispose();
-    rtkPointNumberController.dispose();
-    for (final c in pinnedControllers.values) {
-      c.dispose();
-    }
-    for (final c in extraControllers.values) {
-      c.dispose();
-    }
-  }
-}
-
-class _FormScreenState extends ConsumerState<FormScreen> {
+class _FormScreenState extends ConsumerState<FormScreen>
+    with WidgetsBindingObserver {
   late final _formKey = GlobalKey<FormState>();
   final _scrollController = ScrollController();
   late final _siteNameController = TextEditingController();
@@ -180,15 +100,75 @@ class _FormScreenState extends ConsumerState<FormScreen> {
   // in place). Starts as the opened draft's id, or null for a new form.
   int? _currentDraftId;
 
+  // Held for the life of the form so autosave updates one hydrology/elevation row
+  final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
+
+  // Null means nothing is expanded - every place that adds or loads plots
+  // sets this explicitly, so collapsing the open plot has somewhere to land
+  // without silently re-expanding whatever happens to be last
+  String? _expandedPlotLocalId;
+  final Map<String, GlobalKey> _plotCardKeys = {};
+
+  GlobalKey _keyFor(PlotData plot) =>
+      _plotCardKeys.putIfAbsent(plot.localId, () => GlobalKey());
+
+  bool _isPlotExpanded(PlotData plot) {
+    final expandedId = _expandedPlotLocalId;
+    return plot.localId == expandedId;
+  }
+
+  late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
+
+  _AutosaveStatus _autosaveStatus = _AutosaveStatus.idle;
+  Timer? _autosaveFadeTimer;
+
+  void _onEdited() {
+    if (!_isDirty) return;
+    _autosave.schedule();
+  }
+
   // Snapshot of the form state at the last save (or initial load), used to
   // decide whether the "unsaved changes" prompt is needed.
   String _savedSignature = '';
 
-  String _generatePlotId(String transectId, int plotNumber) {
-    final parts = [transectId, plotNumber.toString()]
-        .where((p) => p.isNotEmpty)
-        .join('_');
-    return parts;
+  String _generatePlotId(String transectId, int plotNumber) =>
+      generatePlotId(transectId, plotNumber);
+
+  DraftSnapshot _buildSnapshot() {
+    return DraftSnapshot(
+      monitoringType: widget.monitoringType,
+      singleRecordLocalId: _singleRecordLocalId,
+      protocolCode: _activeProtocol?.protocolCode ?? 'MassMarshVeg',
+      plots: _plots,
+      hydrology: widget.monitoringType != 'hydrology'
+          ? null
+          : HydrologyFields(
+              areaTreatment: _areaTreatmentController.text.isEmpty
+                  ? null
+                  : _areaTreatmentController.text,
+              wlrType:
+                  _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
+              serialNumber: _serialNumberController.text,
+              waypointNumber: _waypointNumberController.text,
+              rtkElevationNavd88M: double.tryParse(_rtkElevationController.text),
+              waterAboveBelowNutM: double.tryParse(_waterAboveBelowController.text),
+              wellRimToWaterM: double.tryParse(_wellRimToWaterController.text),
+              wellRimToMarshM: double.tryParse(_wellRimToMarshController.text),
+            ),
+      elevation: widget.monitoringType != 'elevation'
+          ? null
+          : ElevationFields(
+              transectId: _transectIdController.text,
+              pointNumber: int.tryParse(_pointNumberController.text) ?? 1,
+              latitude: double.tryParse(_latitudeController.text) ?? 0.0,
+              longitude: double.tryParse(_longitudeController.text) ?? 0.0,
+              elevationNavd88M:
+                  double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
+              featureType: _featureTypeController.text.isEmpty
+                  ? null
+                  : _featureTypeController.text,
+            ),
+    );
   }
 
   /// Serializes the current form state so it can be compared against the
@@ -289,8 +269,21 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    // Last chance to write before Android can reclaim the process
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _autosave.flush().catchError((_) {});
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _plots = [];
     _currentDraftId = widget.draftId;
     // Load species, protocol, and default visibility after first frame
@@ -336,6 +329,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         thatchHeight: 0,
         species: [],
       ));
+      _expandedPlotLocalId = _plots.first.localId;
     }
     _markClean();
 
@@ -388,16 +382,24 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         
         setState(() {
           _plots = vegRecords.map((record) {
-            List<SpeciesObservation> species = [];
+            List<PlotSpeciesEntry> species = [];
             if (record['species_observations'] != null) {
               final speciesJson = jsonDecode(record['species_observations'] as String) as List;
-              species = speciesJson.map((s) => SpeciesObservation(
+              species = speciesJson.map((s) => PlotSpeciesEntry(
                 speciesCode: s['species_code'] as String,
                 percentageCover: s['percentage_cover'] as int,
               )).toList();
             }
             
+            // photoPath alone isn't enough - the thumbnail renders off
+            // photoFile, which a freshly loaded draft never had a chance to set
+            final photoPath = record['photo_local_path'] as String?;
+            final photoFile = photoPath != null && File(photoPath).existsSync()
+                ? File(photoPath)
+                : null;
+
             return PlotData(
+              localId: record['local_id'] as String?,
               transectId: record['transect_id'] as String? ?? '',
               plotNumber: record['plot_number'] as int? ?? 1,
               plotId: record['plot_id'] as String? ?? '',
@@ -410,14 +412,15 @@ class _FormScreenState extends ConsumerState<FormScreen> {
               thatchHeight: (record['thatch_height_m'] as num?)?.toDouble() ?? 0.0,
               elevation: (record['elevation_m'] as num?)?.toDouble(),
               notes: record['notes'] as String?,
-              photoPath: record['photo_local_path'] as String?,
+              photoPath: photoPath,
+              photoFile: photoFile,
               species: species,
               subclass: record['subclass'] as String?,
               rtkPointNumber: record['rtk_point_number'] as String?,
               pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             );
           }).toList();
-          
+          _expandedPlotLocalId = _plots.isEmpty ? null : _plots.last.localId;
         });
       } else if (widget.monitoringType == 'hydrology') {
         final hydroRecords = await database.query(
@@ -505,6 +508,16 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _autosaveFadeTimer?.cancel();
+
+    // dispose cannot await, so the write happens detached after this returns
+    final pending = _autosave.hasPendingWork ? _captureDraft() : null;
+    _autosave.cancel();
+    if (pending != null) {
+      _writeDraft(pending).catchError((_) {});
+    }
+
     for (final plot in _plots) {
       plot.dispose();
     }
@@ -600,7 +613,44 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
+  Widget? _buildAutosaveIndicator() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final IconData icon;
+    final String label;
+    final Color color;
+
+    switch (_autosaveStatus) {
+      case _AutosaveStatus.idle:
+        return null;
+      case _AutosaveStatus.saving:
+        icon = Icons.sync;
+        label = 'Saving to device…';
+        color = colorScheme.onSurface.withValues(alpha: 0.6);
+      case _AutosaveStatus.saved:
+        icon = Icons.check_circle_outline;
+        label = 'Saved on this device';
+        color = colorScheme.onSurface.withValues(alpha: 0.6);
+      case _AutosaveStatus.error:
+        icon = Icons.error_outline;
+        label = 'Not saved yet, retrying…';
+        color = colorScheme.error;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActionBar() {
+    final indicator = _buildAutosaveIndicator();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -609,30 +659,37 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
         ],
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
-            child: FilledButton.icon(
-              onPressed: () => _saveDraft(context, ref),
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('Save Draft'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+          ?indicator,
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: FilledButton.icon(
+                  onPressed: () => _saveDraft(context, ref),
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('Save Draft'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
               ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: OutlinedButton.icon(
-              onPressed: () => _endSessionWithConfirm(context, ref),
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('End Session'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: OutlinedButton.icon(
+                  onPressed: () => _endSessionWithConfirm(context, ref),
+                  icon: const Icon(Icons.check_circle_outline),
+                  label: const Text('End Session'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),
@@ -690,54 +747,83 @@ class _FormScreenState extends ConsumerState<FormScreen> {
         title: Text(title),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_upload),
+            icon: const Icon(Icons.save_outlined),
             tooltip: 'Save Draft',
             onPressed: () => _saveDraft(context, ref),
           ),
         ],
       ),
+      floatingActionButton: widget.monitoringType == 'vegetation'
+          ? FloatingActionButton.extended(
+              onPressed: _addNewPlot,
+              icon: const Icon(Icons.add),
+              label: const Text('Add Plot'),
+            )
+          : null,
       body: Column(
         children: [
           _buildActionBar(),
           Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              padding: EdgeInsets.fromLTRB(
-                16, 16, 16,
-                16 + MediaQuery.paddingOf(context).bottom,
-              ),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 720),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // COMMON FIELDS FOR ALL FORMS
-                        _buildSectionHeader('Field Session Information'),
-                        _buildReadOnlyField(
-                          'Observer',
-                          ref.watch(authProvider).user?.fullName ?? '',
-                          Icons.person,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Form(
+                  key: _formKey,
+                  onChanged: _onEdited,
+                  child: CustomScrollView(
+                    controller: _scrollController,
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // COMMON FIELDS FOR ALL FORMS
+                              _buildSectionHeader('Field Session Information'),
+                              _buildReadOnlyField(
+                                'Observer',
+                                ref.watch(authProvider).user?.fullName ?? '',
+                                Icons.person,
+                              ),
+                              _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
+                              _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
+                              _buildTimeField(_startTimeController, 'Start Time'),
+                              _buildTimeField(_endTimeController, 'End Time'),
+                              _buildVisibilitySelector(),
+
+                              const SizedBox(height: 24),
+
+                              if (widget.monitoringType == 'vegetation')
+                                _buildVegetationSectionHeader()
+                              else if (widget.monitoringType == 'hydrology')
+                                _buildHydrologyForm()
+                              else if (widget.monitoringType == 'elevation')
+                                _buildElevationForm(),
+                            ],
+                          ),
                         ),
-                        _buildTextField(_siteNameController, 'Site Name', Icons.location_on),
-                        _buildTextField(_otherMembersController, 'Other Team Members', Icons.people, maxLines: 2),
-                        _buildTimeField(_startTimeController, 'Start Time'),
-                        _buildTimeField(_endTimeController, 'End Time'),
-                        _buildVisibilitySelector(),
-
-                        const SizedBox(height: 24),
-
-                        // MONITORING TYPE SPECIFIC FIELDS
-                        if (widget.monitoringType == 'vegetation')
-                          _buildVegetationForm()
-                        else if (widget.monitoringType == 'hydrology')
-                          _buildHydrologyForm()
-                        else if (widget.monitoringType == 'elevation')
-                          _buildElevationForm(),
-                      ],
-                    ),
+                      ),
+                      // Only the plot list is a lazy sliver: with 50+ plots
+                      // fully expanded, the old eager Column built every
+                      // field and controller for all of them at once
+                      if (widget.monitoringType == 'vegetation')
+                        SliverPadding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          sliver: SliverList.builder(
+                            itemCount: _plots.length,
+                            itemBuilder: (context, index) =>
+                                _buildPlotEntry(index, _plots[index]),
+                          ),
+                        ),
+                      SliverToBoxAdapter(
+                        child: SizedBox(
+                          height: 16 +
+                              MediaQuery.paddingOf(context).bottom +
+                              (widget.monitoringType == 'vegetation' ? 72 : 0),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -749,7 +835,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     );
   }
 
-  Widget _buildVegetationForm() {
+  Widget _buildVegetationSectionHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -759,66 +845,131 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 12),
-
-        // List of plots
-        ..._plots.asMap().entries.map((entry) {
-          int index = entry.key;
-          PlotData plot = entry.value;
-          return _buildPlotCard(index, plot);
-        }),
-
-        const SizedBox(height: 12),
-
-        // Add new plot button
-        OutlinedButton.icon(
-          onPressed: () {
-            setState(() {
-              final plotNum = _nextPlotNumber;
-              final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
-
-              // Continue the previous plot's ID pattern when it ends in a
-              // number (plotHELLO_001 -> plotHELLO_002); otherwise fall back
-              // to transect_number generation.
-              String? autoPlotId;
-              var inheritedManualId = false;
-              if (_plots.isNotEmpty) {
-                final prev = _plots.last;
-                autoPlotId = incrementTrailingNumber(prev.plotId);
-                inheritedManualId = autoPlotId != null && prev.plotIdManuallySet;
-              }
-
-              // Auto-increment RTK point number if the protocol uses it,
-              // continuing whatever format the last non-empty value used.
-              String? autoRtk;
-              if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
-                final prevRtk = _plots
-                    .map((p) => p.rtkPointNumber?.trim() ?? '')
-                    .lastWhere((v) => v.isNotEmpty, orElse: () => '');
-                autoRtk = prevRtk.isEmpty ? '1' : incrementTrailingNumber(prevRtk);
-              }
-
-              _plots.add(PlotData(
-                transectId: transectId,
-                plotNumber: plotNum,
-                plotId: autoPlotId ?? _generatePlotId(transectId, plotNum),
-                plotIdManuallySet: inheritedManualId,
-                habitatType: '',
-                distanceAlongTransect: 0,
-                latitude: 0,
-                longitude: 0,
-                canopyHeight: 0,
-                thatchHeight: 0,
-                species: [],
-                rtkPointNumber: autoRtk,
-                pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
-              ));
-            });
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Add New Plot'),
-        ),
       ],
     );
+  }
+
+  Widget _buildPlotEntry(int index, PlotData plot) {
+    return KeyedSubtree(
+      key: _keyFor(plot),
+      child: _isPlotExpanded(plot)
+          ? _buildPlotCard(index, plot)
+          : _buildCollapsedPlotSummary(plot),
+    );
+  }
+
+  Widget _buildCollapsedPlotSummary(PlotData plot) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final label = plot.plotId.isNotEmpty
+        ? plot.plotId
+        : 'Plot ${plot.plotNumber}';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => setState(() => _expandedPlotLocalId = plot.localId),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              if (plot.photoFile != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.file(
+                      plot.photoFile!,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.cover,
+                      cacheWidth: 80,
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Plot ${plot.plotNumber} · $label',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis),
+                    if (plot.species.isNotEmpty)
+                      Text('${plot.species.length} species recorded',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              )),
+                  ],
+                ),
+              ),
+              Icon(Icons.expand_more, color: colorScheme.onSurface.withValues(alpha: 0.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _addNewPlot() {
+    late final PlotData newPlot;
+    setState(() {
+      final plotNum = _nextPlotNumber;
+      final transectId = _plots.isNotEmpty ? _plots.first.transectId : '';
+
+      // Continue the previous plot's ID pattern when it ends in a
+      // number (plotHELLO_001 -> plotHELLO_002); otherwise fall back
+      // to transect_number generation.
+      String? autoPlotId;
+      var inheritedManualId = false;
+      if (_plots.isNotEmpty) {
+        final prev = _plots.last;
+        autoPlotId = incrementTrailingNumber(prev.plotId);
+        inheritedManualId = autoPlotId != null && prev.plotIdManuallySet;
+      }
+
+      // Auto-increment RTK point number if the protocol uses it,
+      // continuing whatever format the last non-empty value used.
+      String? autoRtk;
+      if (_activeProtocol?.hasExtraField('rtk_point_number') ?? false) {
+        final prevRtk = _plots
+            .map((p) => p.rtkPointNumber?.trim() ?? '')
+            .lastWhere((v) => v.isNotEmpty, orElse: () => '');
+        autoRtk = prevRtk.isEmpty ? '1' : incrementTrailingNumber(prevRtk);
+      }
+
+      newPlot = PlotData(
+        transectId: transectId,
+        plotNumber: plotNum,
+        plotId: autoPlotId ?? _generatePlotId(transectId, plotNum),
+        plotIdManuallySet: inheritedManualId,
+        habitatType: '',
+        distanceAlongTransect: 0,
+        latitude: 0,
+        longitude: 0,
+        canopyHeight: 0,
+        thatchHeight: 0,
+        species: [],
+        rtkPointNumber: autoRtk,
+        pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
+      );
+      _plots.add(newPlot);
+      _expandedPlotLocalId = newPlot.localId;
+    });
+    _onEdited();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _keyFor(newPlot).currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   Widget _buildPlotCard(int index, PlotData plot) {
@@ -839,15 +990,32 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (_plots.length > 1)
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.expand_less),
+                      tooltip: 'Collapse',
+                      onPressed: () => setState(() => _expandedPlotLocalId = null),
+                    ),
+                    if (_plots.length > 1)
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
                     onPressed: () {
                       setState(() {
-                        _plots.removeAt(index).dispose();
+                        final removed = _plots.removeAt(index);
+                        _plotCardKeys.remove(removed.localId);
+                        if (_expandedPlotLocalId == removed.localId) {
+                          _expandedPlotLocalId =
+                              _plots.isEmpty ? null : _plots.last.localId;
+                        }
+                        removed.dispose();
                       });
+                      _onEdited();
                     },
                   ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -962,14 +1130,18 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.pin_drop),
                   ),
-                  onChanged: (v) => setState(() => plot.rtkPointNumber = v.isEmpty ? null : v),
+                  onChanged: (v) {
+                    setState(() => plot.rtkPointNumber = v.isEmpty ? null : v);
+                    _onEdited();
+                  },
                 ),
               ),
             if (_activeProtocol?.hasExtraField('subclass') ?? false)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: DropdownButtonFormField<String>(
-                  value: plot.subclass,
+                  key: ValueKey('subclass_${plot.localId}_${plot.subclass}'),
+                  initialValue: plot.subclass,
                   decoration: const InputDecoration(
                     labelText: 'Subclass',
                     border: OutlineInputBorder(),
@@ -982,7 +1154,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                             child: Text(opt, overflow: TextOverflow.ellipsis),
                           ))
                       .toList(),
-                  onChanged: (v) => setState(() => plot.subclass = v),
+                  onChanged: (v) {
+                    setState(() => plot.subclass = v);
+                    _onEdited();
+                  },
                 ),
               ),
 
@@ -1009,11 +1184,40 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             if (plot.photoFile != null)
               Stack(
                 children: [
-                  Image.file(
-                    plot.photoFile!,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
+                  GestureDetector(
+                    onTap: () => showFullScreenPhoto(context, plot.photoFile!),
+                    child: Image.file(
+                      plot.photoFile!,
+                      height: 200,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      // The file on disk stays full-resolution; only the
+                      // decoded-for-display copy is downsized, since a 12MP
+                      // photo decoded per plot is what likely OOM'd the app
+                      cacheWidth: 800,
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text('Tap to enlarge',
+                                style: TextStyle(color: Colors.white, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                   Positioned(
                     top: 8,
@@ -1073,7 +1277,10 @@ class _FormScreenState extends ConsumerState<FormScreen> {
             _SpeciesInput(
               plot: plot,
               allSpecies: _allSpecies,
-              onChanged: () => setState(() {}),
+              onChanged: () {
+                setState(() {});
+                _onEdited();
+              },
               coverIncrement: _activeProtocol?.speciesConfig.coverIncrement ?? 1,
               pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             ),
@@ -1115,6 +1322,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                     _plots[plotIndex].habitatType = value;
                 }
               });
+              _onEdited();
             }
           },
           decoration: InputDecoration(
@@ -1176,6 +1384,7 @@ class _FormScreenState extends ConsumerState<FormScreen> {
                 _plots[plotIndex].notes = value;
             }
           });
+          _onEdited();
         },
         validator: (value) {
           if (!isOptional && (value == null || value.isEmpty)) {
@@ -1385,17 +1594,69 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     return dest;
   }
 
+  // Redundant with the coordinates already saved on the plot record, but a
+  // photo that carries its own location survives even if that record is lost
+  Future<void> _stampPhotoLocation(String path, int plotIndex) async {
+    try {
+      var lat = _plots[plotIndex].latitude;
+      var lon = _plots[plotIndex].longitude;
+      if (lat == 0 && lon == 0) {
+        // Mirrors _getGPSLocation's permission handling - on a fresh
+        // install nothing has requested location access yet, so this
+        // photo-time stamp needs to ask too, not just the GPS button
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          return;
+        }
+
+        final last = await Geolocator.getLastKnownPosition();
+        if (last == null) return;
+        lat = last.latitude;
+        lon = last.longitude;
+      }
+
+      final exif = await Exif.fromPath(path);
+      try {
+        await exif.writeAttributes({
+          'GPSLatitude': lat.abs().toString(),
+          'GPSLatitudeRef': lat >= 0 ? 'N' : 'S',
+          'GPSLongitude': lon.abs().toString(),
+          'GPSLongitudeRef': lon >= 0 ? 'E' : 'W',
+        });
+      } finally {
+        await exif.close();
+      }
+    } catch (_) {
+      // Best-effort only - the database record is the record that matters
+    }
+  }
+
   Future<void> _pickImageFromCamera(int plotIndex) async {
     try {
+      // The camera intent backgrounds this app and Android can kill the
+      // process while it's away (OS memory pressure) - flush before
+      // handing off so nothing typed since the last debounce is lost
+      await _autosave.flush();
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.camera,
       );
       if (image != null && mounted) {
         final permanentPath = await _copyImageToPermanentStorage(image.path);
+        // Awaited and run before the photo is ever displayed - native EXIF
+        // writes rewrite the whole file in place, and racing that against
+        // a concurrent Image.file decode of the same path is what was
+        // producing "could not decompress image"
+        await _stampPhotoLocation(permanentPath, plotIndex);
         setState(() {
           _plots[plotIndex].photoFile = File(permanentPath);
           _plots[plotIndex].photoPath = permanentPath;
         });
+        // Flushed rather than scheduled: a photo is expensive to retake
+        await _autosave.flush();
       }
     } catch (e) {
       if (mounted) {
@@ -1408,6 +1669,9 @@ class _FormScreenState extends ConsumerState<FormScreen> {
 
   Future<void> _pickImageFromGallery(int plotIndex) async {
     try {
+      // Same reasoning as the camera path - the gallery picker also hands
+      // off to another activity Android can kill this process behind
+      await _autosave.flush();
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
       );
@@ -1417,6 +1681,8 @@ class _FormScreenState extends ConsumerState<FormScreen> {
           _plots[plotIndex].photoFile = File(permanentPath);
           _plots[plotIndex].photoPath = permanentPath;
         });
+        // Flushed rather than scheduled: a photo is expensive to retake
+        await _autosave.flush();
       }
     } catch (e) {
       if (mounted) {
@@ -1459,127 +1725,98 @@ class _FormScreenState extends ConsumerState<FormScreen> {
     }
   }
 
+  // Must never await, so it stays valid even mid-teardown
+  ({FieldOuting outing, String? childTable, List<Map<String, dynamic>> rows})
+      _captureDraft() {
+    final startTime = _startTimeController.text.isNotEmpty
+        ? _parseTimeString(_startTimeController.text)
+        : null;
+    final endTime = _endTimeController.text.isNotEmpty
+        ? _parseTimeString(_endTimeController.text)
+        : null;
+
+    final outing = FieldOuting(
+      orgId: ref.read(selectedOrgIdProvider),
+      createdByUserId: ref.read(authProvider).user?.id,
+      siteName: _siteNameController.text,
+      otherMembers: _otherMembersController.text.isEmpty
+          ? null
+          : _otherMembersController.text,
+      monitoringType: widget.monitoringType,
+      startTime: startTime,
+      endTime: endTime,
+      isDraft: true,
+      visibility: _visibility,
+      embargoUntil: _embargoUntil,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    final snapshot = _buildSnapshot();
+    final childTable = snapshot.childTable;
+
+    return (
+      outing: outing,
+      childTable: childTable,
+      rows: childTable == null ? const <Map<String, dynamic>>[] : snapshot.toChildRows(),
+    );
+  }
+
+  Future<void> _writeDraft(
+    ({FieldOuting outing, String? childTable, List<Map<String, dynamic>> rows})
+        captured,
+  ) async {
+    final service = ref.read(fieldOutingServiceProvider);
+    final childTable = captured.childTable;
+
+    if (childTable != null) {
+      if (_currentDraftId != null) {
+        await service.updateDraftWithChildren(
+            _currentDraftId!, captured.outing, captured.rows, childTable);
+      } else {
+        final localId = await service.saveFieldOutingWithChildren(
+            captured.outing, captured.rows, childTable);
+        _currentDraftId = await service.getDbIdByLocalId(localId);
+      }
+    } else {
+      final localId = await service.saveFieldOuting(captured.outing);
+      _currentDraftId ??= await service.getDbIdByLocalId(localId);
+    }
+  }
+
+  // Shared by the manual Save Draft button and autosave, so both drive the
+  // same status indicator instead of tracking it separately
+  Future<void> _persistDraft() async {
+    // Any in-flight fade belongs to a previous save - let this attempt's
+    // own outcome (saved or error) decide what's shown next
+    _autosaveFadeTimer?.cancel();
+    if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.saving);
+    try {
+      final captured = _captureDraft();
+      await _writeDraft(captured);
+      _markClean();
+      if (mounted) {
+        setState(() => _autosaveStatus = _AutosaveStatus.saved);
+        // A static "Saved" label stops getting read after a few seconds;
+        // fading it back to idle keeps it meaningful as a one-off event.
+        // Errors are left out of this - they stay until the next attempt
+        // resolves, since that's the one state a user needs to act on
+        _autosaveFadeTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted && _autosaveStatus == _AutosaveStatus.saved) {
+            setState(() => _autosaveStatus = _AutosaveStatus.idle);
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.error);
+      rethrow;
+    }
+  }
+
   Future<bool> _saveDraft(BuildContext context, WidgetRef ref, {bool navigateAway = false}) async {
     // Don't require validation for drafts - they can be incomplete
     try {
-      // Parse start and end times if provided
-      final startTime = _startTimeController.text.isNotEmpty
-          ? _parseTimeString(_startTimeController.text)
-          : null;
-      final endTime = _endTimeController.text.isNotEmpty
-          ? _parseTimeString(_endTimeController.text)
-          : null;
-
-      // Create the field outing object as draft
-      final outing = FieldOuting(
-        orgId: ref.read(selectedOrgIdProvider),
-        createdByUserId: ref.read(authProvider).user?.id,
-        siteName: _siteNameController.text,
-        otherMembers: _otherMembersController.text.isEmpty
-            ? null
-            : _otherMembersController.text,
-        monitoringType: widget.monitoringType,
-        startTime: startTime,
-        endTime: endTime,
-        isDraft: true,
-        visibility: _visibility,
-        embargoUntil: _embargoUntil,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-
-      final service = ref.read(fieldOutingServiceProvider);
-      final now = DateTime.now().toIso8601String();
-
-      List<Map<String, dynamic>>? childRecords;
-      String? childTable;
-
-      if (widget.monitoringType == 'vegetation') {
-        childTable = 'vegetation_records';
-        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
-        childRecords = _plots.map((plot) {
-          final effectivePlotId = plot.plotId.isNotEmpty
-              ? plot.plotId
-              : _generatePlotId(plot.transectId, plot.plotNumber);
-          return {
-          'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
-          'transect_id': plot.transectId,
-          'plot_number': plot.plotNumber,
-          'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
-          'habitat_type': plot.habitatType,
-          'distance_along_transect_m': plot.distanceAlongTransect,
-          'latitude': plot.latitude,
-          'longitude': plot.longitude,
-          'elevation_m': plot.elevation,
-          'canopy_height_m': plot.canopyHeight,
-          'thatch_height_m': plot.thatchHeight,
-          'species_observations': jsonEncode(plot.species.map((s) => {
-            'species_code': s.speciesCode,
-            'percentage_cover': s.percentageCover,
-          }).toList()),
-          'photo_local_path': plot.photoPath,
-          'notes': plot.notes,
-          'protocol_code': protocolCode,
-          'subclass': plot.subclass,
-          'rtk_point_number': plot.rtkPointNumber,
-          'sync_status': 'pending',
-          'created_at': now,
-          'updated_at': now,
-          };
-        }).toList();
-      } else if (widget.monitoringType == 'hydrology') {
-        childTable = 'hydrology_records';
-        childRecords = [
-          {
-            'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
-            'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
-            'wlr_type': _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
-            'serial_number': _serialNumberController.text,
-            'waypoint_number': _waypointNumberController.text,
-            'rtk_elevation_navd88_m': double.tryParse(_rtkElevationController.text),
-            'water_above_below_nut_m': double.tryParse(_waterAboveBelowController.text),
-            'well_rim_to_water_m': double.tryParse(_wellRimToWaterController.text),
-            'well_rim_to_marsh_m': double.tryParse(_wellRimToMarshController.text),
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-      } else if (widget.monitoringType == 'elevation') {
-        childTable = 'elevation_records';
-        childRecords = [
-          {
-            'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
-            'transect_id': _transectIdController.text,
-            'point_number': int.tryParse(_pointNumberController.text) ?? 1,
-            'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
-            'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
-            'elevation_navd88_m': double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
-            'feature_type': _featureTypeController.text.isEmpty ? null : _featureTypeController.text,
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-      }
-
-      if (childRecords != null && childTable != null) {
-        if (_currentDraftId != null) {
-          // Update the existing draft in place so repeated saves don't
-          // create duplicates.
-          await service.updateDraftWithChildren(
-              _currentDraftId!, outing, childRecords, childTable);
-        } else {
-          final localId = await service.saveFieldOutingWithChildren(
-              outing, childRecords, childTable);
-          _currentDraftId = await service.getDbIdByLocalId(localId);
-        }
-      } else {
-        final localId = await service.saveFieldOuting(outing);
-        _currentDraftId ??= await service.getDbIdByLocalId(localId);
-      }
-
-      _markClean();
+      await _persistDraft();
 
       if (mounted) {
         showAppSnackBar(context, 'Draft saved!');
@@ -1662,75 +1899,12 @@ class _FormScreenState extends ConsumerState<FormScreen> {
       );
 
       final service = ref.read(fieldOutingServiceProvider);
-      final now = DateTime.now().toIso8601String();
 
-      if (widget.monitoringType == 'vegetation') {
-        final protocolCode = _activeProtocol?.protocolCode ?? 'MassMarshVeg';
-        final childRecords = _plots.map((plot) {
-          final effectivePlotId = plot.plotId.isNotEmpty
-              ? plot.plotId
-              : _generatePlotId(plot.transectId, plot.plotNumber);
-          return {
-          'local_id': 'veg_${DateTime.now().millisecondsSinceEpoch}_${plot.plotNumber}',
-          'transect_id': plot.transectId,
-          'plot_number': plot.plotNumber,
-          'plot_id': effectivePlotId.isNotEmpty ? effectivePlotId : null,
-          'habitat_type': plot.habitatType,
-          'distance_along_transect_m': plot.distanceAlongTransect,
-          'latitude': plot.latitude,
-          'longitude': plot.longitude,
-          'elevation_m': plot.elevation,
-          'canopy_height_m': plot.canopyHeight,
-          'thatch_height_m': plot.thatchHeight,
-          'species_observations': jsonEncode(plot.species.map((s) => {
-            'species_code': s.speciesCode,
-            'percentage_cover': s.percentageCover,
-          }).toList()),
-          'photo_local_path': plot.photoPath,
-          'notes': plot.notes,
-          'protocol_code': protocolCode,
-          'subclass': plot.subclass,
-          'rtk_point_number': plot.rtkPointNumber,
-          'sync_status': 'pending',
-          'created_at': now,
-          'updated_at': now,
-          };
-        }).toList();
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'vegetation_records');
-      } else if (widget.monitoringType == 'hydrology') {
-        final childRecords = [
-          {
-            'local_id': 'hydro_${DateTime.now().millisecondsSinceEpoch}',
-            'area_treatment': _areaTreatmentController.text.isEmpty ? null : _areaTreatmentController.text,
-            'wlr_type': _wlrTypeController.text.isEmpty ? null : _wlrTypeController.text,
-            'serial_number': _serialNumberController.text,
-            'waypoint_number': _waypointNumberController.text,
-            'rtk_elevation_navd88_m': double.tryParse(_rtkElevationController.text),
-            'water_above_below_nut_m': double.tryParse(_waterAboveBelowController.text),
-            'well_rim_to_water_m': double.tryParse(_wellRimToWaterController.text),
-            'well_rim_to_marsh_m': double.tryParse(_wellRimToMarshController.text),
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'hydrology_records');
-      } else if (widget.monitoringType == 'elevation') {
-        final childRecords = [
-          {
-            'local_id': 'elev_${DateTime.now().millisecondsSinceEpoch}',
-            'transect_id': _transectIdController.text,
-            'point_number': int.tryParse(_pointNumberController.text) ?? 1,
-            'latitude': double.tryParse(_latitudeController.text) ?? 0.0,
-            'longitude': double.tryParse(_longitudeController.text) ?? 0.0,
-            'elevation_navd88_m': double.tryParse(_elevationNavd88Controller.text) ?? 0.0,
-            'feature_type': _featureTypeController.text.isEmpty ? null : _featureTypeController.text,
-            'sync_status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-          }
-        ];
-        await service.saveFieldOutingWithChildren(outing, childRecords, 'elevation_records');
+      final snapshot = _buildSnapshot();
+      final childTable = snapshot.childTable;
+      if (childTable != null) {
+        await service.saveFieldOutingWithChildren(
+            outing, snapshot.toChildRows(), childTable);
       } else {
         await service.saveFieldOuting(outing);
       }
@@ -1822,7 +1996,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     setState(() {
       plot.species.removeWhere((s) => s.speciesCode == code);
       if (percent != null && percent > 0) {
-        plot.species.add(SpeciesObservation(
+        plot.species.add(PlotSpeciesEntry(
           speciesCode: code,
           percentageCover: percent.clamp(0, 100),
         ));
@@ -1835,7 +2009,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final plot = widget.plot;
     if (plot.species.any((s) => s.speciesCode == species.code)) return;
     setState(() {
-      plot.species.add(SpeciesObservation(speciesCode: species.code, percentageCover: 0));
+      plot.species.add(PlotSpeciesEntry(speciesCode: species.code, percentageCover: 0));
       plot.extraControllers[species.code] = TextEditingController(text: '');
       _searchController.clear();
       _searchQuery = '';
@@ -1859,7 +2033,7 @@ class _SpeciesInputState extends State<_SpeciesInput> {
     final idx = plot.species.indexWhere((s) => s.speciesCode == code);
     if (idx < 0 || percent == null) return;
     setState(() {
-      plot.species[idx] = SpeciesObservation(
+      plot.species[idx] = PlotSpeciesEntry(
         speciesCode: code,
         percentageCover: percent.clamp(0, 100),
       );
@@ -1950,12 +2124,15 @@ class _SpeciesInputState extends State<_SpeciesInput> {
 
         // Pinned species rows (always shown in fixed order)
         ...widget.pinnedCodes.map((code) {
-          final commonLabel = speciesMap[code]?.label ?? _pinnedLabels[code] ?? code;
+          // .commonName, not .label - label already has "CODE - " baked in,
+          // and the row below prepends code again, showing it twice
+          final commonName = speciesMap[code]?.commonName ?? _pinnedLabels[code];
+          final commonLabel = commonName ?? code;
           final scientificName = speciesMap[code]?.scientificName ?? '';
           final controller = plot.pinnedControllers[code];
           final currentValue = plot.species
               .firstWhere((s) => s.speciesCode == code,
-                  orElse: () => SpeciesObservation(speciesCode: code, percentageCover: 0))
+                  orElse: () => PlotSpeciesEntry(speciesCode: code, percentageCover: 0))
               .percentageCover;
           if (widget.coverIncrement == 1) {
             return Padding(

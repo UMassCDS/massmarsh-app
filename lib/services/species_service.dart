@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
-import 'package:logger/logger.dart';
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm;
 import '../database/app_database.dart';
+import 'app_logger.dart';
 import 'sync_service.dart';
 
 class SpeciesItem {
@@ -23,7 +23,7 @@ class SpeciesService {
   static final SpeciesService instance = SpeciesService._();
   SpeciesService._();
 
-  final _logger = Logger();
+  final _logger = appLogger;
 
   static const _ttl = Duration(hours: 1);
   List<SpeciesItem>? _memCache;
