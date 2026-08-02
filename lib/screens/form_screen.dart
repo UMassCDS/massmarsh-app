@@ -1599,6 +1599,18 @@ class _FormScreenState extends ConsumerState<FormScreen>
       var lat = _plots[plotIndex].latitude;
       var lon = _plots[plotIndex].longitude;
       if (lat == 0 && lon == 0) {
+        // Mirrors _getGPSLocation's permission handling - on a fresh
+        // install nothing has requested location access yet, so this
+        // photo-time stamp needs to ask too, not just the GPS button
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          return;
+        }
+
         final last = await Geolocator.getLastKnownPosition();
         if (last == null) return;
         lat = last.latitude;
@@ -1623,18 +1635,26 @@ class _FormScreenState extends ConsumerState<FormScreen>
 
   Future<void> _pickImageFromCamera(int plotIndex) async {
     try {
+      // The camera intent backgrounds this app and Android can kill the
+      // process while it's away (OS memory pressure) - flush before
+      // handing off so nothing typed since the last debounce is lost
+      await _autosave.flush();
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.camera,
       );
       if (image != null && mounted) {
         final permanentPath = await _copyImageToPermanentStorage(image.path);
+        // Awaited and run before the photo is ever displayed - native EXIF
+        // writes rewrite the whole file in place, and racing that against
+        // a concurrent Image.file decode of the same path is what was
+        // producing "could not decompress image"
+        await _stampPhotoLocation(permanentPath, plotIndex);
         setState(() {
           _plots[plotIndex].photoFile = File(permanentPath);
           _plots[plotIndex].photoPath = permanentPath;
         });
         // Flushed rather than scheduled: a photo is expensive to retake
         await _autosave.flush();
-        unawaited(_stampPhotoLocation(permanentPath, plotIndex));
       }
     } catch (e) {
       if (mounted) {
@@ -1647,6 +1667,9 @@ class _FormScreenState extends ConsumerState<FormScreen>
 
   Future<void> _pickImageFromGallery(int plotIndex) async {
     try {
+      // Same reasoning as the camera path - the gallery picker also hands
+      // off to another activity Android can kill this process behind
+      await _autosave.flush();
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
       );
