@@ -24,6 +24,17 @@ class DraftsScreen extends ConsumerWidget {
         title: Text(title),
         centerTitle: true,
       ),
+      // Only when this screen is reached as the "pick which draft" fallback
+      // for a monitoring type - the unfiltered /drafts route has no single
+      // type to start, so it stays a pure browsing list
+      floatingActionButton: filter == null
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.of(context)
+                  .pushReplacementNamed('/form', arguments: filter),
+              icon: const Icon(Icons.add),
+              label: const Text('Start New'),
+            ),
       body: FutureBuilder<List<FieldOuting>>(
         future: filter == null
             ? outingService.getDrafts()
