@@ -33,12 +33,9 @@ class OrgSelectionScreen extends ConsumerWidget {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              await ref.read(authProvider.notifier).logout();
-              ref.read(selectedOrgProvider.notifier).clear();
-            },
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).pushNamed('/settings'),
           ),
         ],
       ),

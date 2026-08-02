@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/field_outing/field_outing.dart';
-import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../providers/org_provider.dart';
 import '../services/protocol_service.dart';
 import '../services/species_service.dart';
 import 'drafts_screen.dart';
 import 'form_screen.dart';
-import 'login_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -151,41 +149,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
-            onPressed: () async {
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Sign out'),
-                  content: const Text('Are you sure you want to sign out?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    FilledButton(
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: const Text('Sign out'),
-                    ),
-                  ],
-                ),
-              );
-              if (confirmed == true && context.mounted) {
-                ref.read(selectedOrgProvider.notifier).clear();
-                await ref.read(authProvider.notifier).logout();
-                if (context.mounted) {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  );
-                }
-              }
-            },
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         child: Column(
