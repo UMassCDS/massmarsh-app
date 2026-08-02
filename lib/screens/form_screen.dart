@@ -102,9 +102,9 @@ class _FormScreenState extends ConsumerState<FormScreen>
   // Held for the life of the form so autosave updates one hydrology/elevation row
   final String _singleRecordLocalId = 'rec_${const Uuid().v4()}';
 
-  // Null defaults to the last plot in the list, so a fresh session or a
-  // just-added plot is expanded without needing to set this explicitly
-  // every time _plots changes
+  // Null means nothing is expanded - every place that adds or loads plots
+  // sets this explicitly, so collapsing the open plot has somewhere to land
+  // without silently re-expanding whatever happens to be last
   String? _expandedPlotLocalId;
   final Map<String, GlobalKey> _plotCardKeys = {};
 
@@ -112,8 +112,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
       _plotCardKeys.putIfAbsent(plot.localId, () => GlobalKey());
 
   bool _isPlotExpanded(PlotData plot) {
-    final expandedId =
-        _expandedPlotLocalId ?? (_plots.isEmpty ? null : _plots.last.localId);
+    final expandedId = _expandedPlotLocalId;
     return plot.localId == expandedId;
   }
 
@@ -328,6 +327,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
         thatchHeight: 0,
         species: [],
       ));
+      _expandedPlotLocalId = _plots.first.localId;
     }
     _markClean();
 
@@ -418,7 +418,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
               pinnedCodes: _activeProtocol?.speciesConfig.pinnedSpecies ?? const ['SPALT', 'SPPAT', 'BARE', 'DEAD'],
             );
           }).toList();
-          
+          _expandedPlotLocalId = _plots.isEmpty ? null : _plots.last.localId;
         });
       } else if (widget.monitoringType == 'hydrology') {
         final hydroRecords = await database.query(
@@ -751,10 +751,10 @@ class _FormScreenState extends ConsumerState<FormScreen>
         ],
       ),
       floatingActionButton: widget.monitoringType == 'vegetation'
-          ? FloatingActionButton(
+          ? FloatingActionButton.extended(
               onPressed: _addNewPlot,
-              tooltip: 'Add New Plot',
-              child: const Icon(Icons.add),
+              icon: const Icon(Icons.add),
+              label: const Text('Add Plot'),
             )
           : null,
       body: Column(
@@ -987,21 +987,32 @@ class _FormScreenState extends ConsumerState<FormScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (_plots.length > 1)
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.expand_less),
+                      tooltip: 'Collapse',
+                      onPressed: () => setState(() => _expandedPlotLocalId = null),
+                    ),
+                    if (_plots.length > 1)
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
                     onPressed: () {
                       setState(() {
                         final removed = _plots.removeAt(index);
                         _plotCardKeys.remove(removed.localId);
                         if (_expandedPlotLocalId == removed.localId) {
-                          _expandedPlotLocalId = null;
+                          _expandedPlotLocalId =
+                              _plots.isEmpty ? null : _plots.last.localId;
                         }
                         removed.dispose();
                       });
                       _onEdited();
                     },
                   ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -2048,7 +2059,10 @@ class _SpeciesInputState extends State<_SpeciesInput> {
 
         // Pinned species rows (always shown in fixed order)
         ...widget.pinnedCodes.map((code) {
-          final commonLabel = speciesMap[code]?.label ?? _pinnedLabels[code] ?? code;
+          // .commonName, not .label - label already has "CODE - " baked in,
+          // and the row below prepends code again, showing it twice
+          final commonName = speciesMap[code]?.commonName ?? _pinnedLabels[code];
+          final commonLabel = commonName ?? code;
           final scientificName = speciesMap[code]?.scientificName ?? '';
           final controller = plot.pinnedControllers[code];
           final currentValue = plot.species
