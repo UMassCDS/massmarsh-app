@@ -120,6 +120,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
   late final DraftAutosave _autosave = DraftAutosave(save: _persistDraft);
 
   _AutosaveStatus _autosaveStatus = _AutosaveStatus.idle;
+  Timer? _autosaveFadeTimer;
 
   void _onEdited() {
     if (!_isDirty) return;
@@ -508,6 +509,7 @@ class _FormScreenState extends ConsumerState<FormScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _autosaveFadeTimer?.cancel();
 
     // dispose cannot await, so the write happens detached after this returns
     final pending = _autosave.hasPendingWork ? _captureDraft() : null;
@@ -1785,12 +1787,26 @@ class _FormScreenState extends ConsumerState<FormScreen>
   // Shared by the manual Save Draft button and autosave, so both drive the
   // same status indicator instead of tracking it separately
   Future<void> _persistDraft() async {
+    // Any in-flight fade belongs to a previous save - let this attempt's
+    // own outcome (saved or error) decide what's shown next
+    _autosaveFadeTimer?.cancel();
     if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.saving);
     try {
       final captured = _captureDraft();
       await _writeDraft(captured);
       _markClean();
-      if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.saved);
+      if (mounted) {
+        setState(() => _autosaveStatus = _AutosaveStatus.saved);
+        // A static "Saved" label stops getting read after a few seconds;
+        // fading it back to idle keeps it meaningful as a one-off event.
+        // Errors are left out of this - they stay until the next attempt
+        // resolves, since that's the one state a user needs to act on
+        _autosaveFadeTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted && _autosaveStatus == _AutosaveStatus.saved) {
+            setState(() => _autosaveStatus = _AutosaveStatus.idle);
+          }
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _autosaveStatus = _AutosaveStatus.error);
       rethrow;
