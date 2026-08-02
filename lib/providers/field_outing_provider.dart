@@ -4,6 +4,7 @@ import '../database/app_database.dart';
 import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
 import '../providers/org_provider.dart';
+import '../services/app_logger.dart';
 import '../services/sync_service.dart';
 
 // Provide access to the database
@@ -284,6 +285,7 @@ class FieldOutingService {
       orderBy: 'updated_at DESC',
     );
 
+    appLogger.i('[drafts] query: userId=$userId orgId=$orgId -> ${result.length} row(s)');
     return result.map((row) => FieldOuting.fromMap(row)).toList();
   }
 

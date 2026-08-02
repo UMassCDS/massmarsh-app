@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/organization/organization.dart';
+import '../services/app_logger.dart';
 import '../services/auth_cache.dart';
 import '../services/org_service.dart';
 import 'auth_provider.dart';
@@ -49,20 +50,29 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
   // Restores the last selected org so it doesn't silently reset on cold start
   Future<void> _restore() async {
     final savedId = await _storage.read(key: _orgIdKey);
-    if (savedId == null) return;
+    if (savedId == null) {
+      appLogger.i('[org] restore: no saved org id, will show org picker');
+      return;
+    }
 
     // Waits for AuthNotifier to know the token first, so this never reads
     // myOrgsProvider before it's set and silently fails to match every boot
     await ref.read(authProvider.notifier).ready;
 
     final orgs = await ref.read(myOrgsProvider.future);
-    if (state != null) return;
+    appLogger.i('[org] restore: saved=$savedId, candidates=${orgs.map((o) => o.id).toList()}');
+    if (state != null) {
+      appLogger.i('[org] restore: state already set to ${state?.id} by the time orgs loaded, not overwriting');
+      return;
+    }
     for (final org in orgs) {
       if (org.id.toString() == savedId) {
+        appLogger.i('[org] restore: matched, resuming org ${org.id}');
         state = org;
         return;
       }
     }
+    appLogger.w('[org] restore: saved id $savedId not found among ${orgs.length} candidate(s), will show org picker');
   }
 
   void select(Organization org) {

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../models/user/user.dart';
+import '../services/app_logger.dart';
 import '../services/auth_cache.dart';
 import '../services/auth_service.dart';
 import '../services/sync_service.dart';
@@ -74,6 +75,7 @@ class AuthNotifier extends Notifier<AuthState> {
   Future<void> _tryRestoreSession() async {
     final token = await _storage.read(key: _tokenKey);
     if (token == null) {
+      appLogger.i('[auth] restore: no stored token, staying signed out');
       state = const AuthState(isInitialized: true);
       _markReady();
       return;
@@ -87,9 +89,12 @@ class AuthNotifier extends Notifier<AuthState> {
     // background, once state has already let the user in.
     final cachedUser = await AuthCache.readUser();
     if (cachedUser != null) {
+      appLogger.i('[auth] restore: hydrated from cache, user=${cachedUser.id}');
       state = AuthState(token: token, user: cachedUser, isInitialized: true);
       SyncService.instance.startAutoSync();
       _markReady();
+    } else {
+      appLogger.i('[auth] restore: token present but no cached user, waiting on network');
     }
 
     try {
@@ -103,11 +108,13 @@ class AuthNotifier extends Notifier<AuthState> {
         SyncService.instance.setAuthToken(currentToken);
       }
 
+      appLogger.i('[auth] restore: network confirmed user=${result.user.id}');
       state = AuthState(
           token: currentToken, user: result.user, isInitialized: true);
       if (cachedUser == null) SyncService.instance.startAutoSync();
     } on DioException catch (e) {
       if (_isAuthRejection(e)) {
+        appLogger.w('[auth] restore: server rejected token (${e.response?.statusCode}), signing out');
         await _storage.delete(key: _tokenKey);
         await AuthCache.clear();
         SyncService.instance.clearAuthToken();
@@ -116,8 +123,10 @@ class AuthNotifier extends Notifier<AuthState> {
       }
       // Any other failure - timeout, no connection, 5xx - is not proof the
       // token is invalid, so the session (cached or not) is left standing
+      appLogger.w('[auth] restore: network error (${e.type}), keeping cached session');
       if (cachedUser == null) state = const AuthState(isInitialized: true);
-    } catch (_) {
+    } catch (e) {
+      appLogger.w('[auth] restore: unexpected error, keeping cached session: $e');
       if (cachedUser == null) state = const AuthState(isInitialized: true);
     } finally {
       // No-op if the cache-hit branch already marked it. Only the no-cache
