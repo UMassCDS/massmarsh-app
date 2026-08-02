@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../models/organization/organization.dart';
@@ -33,6 +35,12 @@ final myOrgsProvider = FutureProvider<List<Organization>>((ref) async {
   }
 });
 
+// Local snapshot of the org list, read straight from storage - lets the org
+// picker paint the list a swap-eligible user already has instantly, instead
+// of blocking on myOrgsProvider's live request every time the screen opens
+final cachedOrgsProvider =
+    FutureProvider<List<Organization>>((ref) => AuthCache.readOrgs());
+
 // ---------------------------------------------------------------------------
 // Selected org state
 // ---------------------------------------------------------------------------
@@ -60,18 +68,33 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
       // myOrgsProvider before it's set and silently fails to match every boot
       await ref.read(authProvider.notifier).ready;
 
+      // Matched against the cache first, not a live request - the whole
+      // point of caching org/user data locally is that nothing needed to
+      // resume a session should block on signal. A slow/unreachable
+      // request here used to just mean the wrong screen flashed briefly;
+      // now that app.dart waits on this to finish, it meant a blank
+      // loading screen for up to the request's full timeout in the field
+      final cached = await AuthCache.readOrgs();
+      final cachedMatch = _findById(cached, savedId);
+      if (cachedMatch != null) {
+        appLogger.i('[org] restore: matched from cache, resuming org ${cachedMatch.id}');
+        state = cachedMatch;
+        // Refreshes the cache for next time - not on this path's critical path
+        unawaited(ref.read(myOrgsProvider.future));
+        return;
+      }
+
       final orgs = await ref.read(myOrgsProvider.future);
       appLogger.i('[org] restore: saved=$savedId, candidates=${orgs.map((o) => o.id).toList()}');
       if (state != null) {
         appLogger.i('[org] restore: state already set to ${state?.id} by the time orgs loaded, not overwriting');
         return;
       }
-      for (final org in orgs) {
-        if (org.id.toString() == savedId) {
-          appLogger.i('[org] restore: matched, resuming org ${org.id}');
-          state = org;
-          return;
-        }
+      final match = _findById(orgs, savedId);
+      if (match != null) {
+        appLogger.i('[org] restore: matched, resuming org ${match.id}');
+        state = match;
+        return;
       }
       appLogger.w('[org] restore: saved id $savedId not found among ${orgs.length} candidate(s), will show org picker');
     } finally {
@@ -82,6 +105,13 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
       // behind the camera intent
       ref.read(orgRestoredProvider.notifier).state = true;
     }
+  }
+
+  Organization? _findById(List<Organization> orgs, String id) {
+    for (final org in orgs) {
+      if (org.id.toString() == id) return org;
+    }
+    return null;
   }
 
   void select(Organization org) {
