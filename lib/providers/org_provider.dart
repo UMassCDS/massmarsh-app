@@ -49,30 +49,39 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
 
   // Restores the last selected org so it doesn't silently reset on cold start
   Future<void> _restore() async {
-    final savedId = await _storage.read(key: _orgIdKey);
-    if (savedId == null) {
-      appLogger.i('[org] restore: no saved org id, will show org picker');
-      return;
-    }
-
-    // Waits for AuthNotifier to know the token first, so this never reads
-    // myOrgsProvider before it's set and silently fails to match every boot
-    await ref.read(authProvider.notifier).ready;
-
-    final orgs = await ref.read(myOrgsProvider.future);
-    appLogger.i('[org] restore: saved=$savedId, candidates=${orgs.map((o) => o.id).toList()}');
-    if (state != null) {
-      appLogger.i('[org] restore: state already set to ${state?.id} by the time orgs loaded, not overwriting');
-      return;
-    }
-    for (final org in orgs) {
-      if (org.id.toString() == savedId) {
-        appLogger.i('[org] restore: matched, resuming org ${org.id}');
-        state = org;
+    try {
+      final savedId = await _storage.read(key: _orgIdKey);
+      if (savedId == null) {
+        appLogger.i('[org] restore: no saved org id, will show org picker');
         return;
       }
+
+      // Waits for AuthNotifier to know the token first, so this never reads
+      // myOrgsProvider before it's set and silently fails to match every boot
+      await ref.read(authProvider.notifier).ready;
+
+      final orgs = await ref.read(myOrgsProvider.future);
+      appLogger.i('[org] restore: saved=$savedId, candidates=${orgs.map((o) => o.id).toList()}');
+      if (state != null) {
+        appLogger.i('[org] restore: state already set to ${state?.id} by the time orgs loaded, not overwriting');
+        return;
+      }
+      for (final org in orgs) {
+        if (org.id.toString() == savedId) {
+          appLogger.i('[org] restore: matched, resuming org ${org.id}');
+          state = org;
+          return;
+        }
+      }
+      appLogger.w('[org] restore: saved id $savedId not found among ${orgs.length} candidate(s), will show org picker');
+    } finally {
+      // Flipped exactly once, on every exit path - lets app.dart tell
+      // "still restoring" apart from "genuinely no org", which otherwise
+      // look identical (both null) and briefly bounce to the org picker
+      // on every cold start, including the process restart Android does
+      // behind the camera intent
+      ref.read(orgRestoredProvider.notifier).state = true;
     }
-    appLogger.w('[org] restore: saved id $savedId not found among ${orgs.length} candidate(s), will show org picker');
   }
 
   void select(Organization org) {
@@ -89,6 +98,17 @@ class SelectedOrgNotifier extends Notifier<Organization?> {
 final selectedOrgProvider =
     NotifierProvider<SelectedOrgNotifier, Organization?>(
         SelectedOrgNotifier.new);
+
+// True once _restore() has finished (found a match, found none, or had
+// nothing saved) - distinct from selectedOrgProvider itself because both
+// "still restoring" and "no org selected" read as null there
+final orgRestoredProvider = NotifierProvider<_OrgRestoredNotifier, bool>(
+    _OrgRestoredNotifier.new);
+
+class _OrgRestoredNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+}
 
 /// Convenience: the currently selected org's id (throws if none selected).
 final selectedOrgIdProvider = Provider<int>((ref) {
