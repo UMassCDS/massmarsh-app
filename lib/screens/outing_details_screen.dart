@@ -7,6 +7,7 @@ import '../models/field_outing/field_outing.dart';
 import '../providers/auth_provider.dart';
 import '../providers/field_outing_provider.dart';
 import '../services/sync_service.dart';
+import '../utils/photo_viewer.dart';
 
 class OutingDetailsScreen extends ConsumerStatefulWidget {
   final FieldOuting outing;
@@ -516,7 +517,36 @@ class _RecordCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 10),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: Image.file(file, fit: BoxFit.cover, cacheWidth: 800),
+                    child: GestureDetector(
+                      onTap: () => showFullScreenPhoto(context, file),
+                      child: Stack(
+                        children: [
+                          Image.file(file, fit: BoxFit.cover, cacheWidth: 800),
+                          Positioned(
+                            bottom: 8,
+                            left: 8,
+                            child: IgnorePointer(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                    SizedBox(width: 4),
+                                    Text('Tap to enlarge',
+                                        style: TextStyle(color: Colors.white, fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               }),

@@ -19,6 +19,7 @@ import '../services/draft_autosave.dart';
 import '../services/species_service.dart';
 import '../services/protocol_service.dart';
 import '../utils/id_utils.dart';
+import '../utils/photo_viewer.dart';
 import '../utils/snackbar_utils.dart';
 
 enum _AutosaveStatus { idle, saving, saved, error }
@@ -1181,15 +1182,40 @@ class _FormScreenState extends ConsumerState<FormScreen>
             if (plot.photoFile != null)
               Stack(
                 children: [
-                  Image.file(
-                    plot.photoFile!,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    // The file on disk stays full-resolution; only the
-                    // decoded-for-display copy is downsized, since a 12MP
-                    // photo decoded per plot is what likely OOM'd the app
-                    cacheWidth: 800,
+                  GestureDetector(
+                    onTap: () => showFullScreenPhoto(context, plot.photoFile!),
+                    child: Image.file(
+                      plot.photoFile!,
+                      height: 200,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      // The file on disk stays full-resolution; only the
+                      // decoded-for-display copy is downsized, since a 12MP
+                      // photo decoded per plot is what likely OOM'd the app
+                      cacheWidth: 800,
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                            SizedBox(width: 4),
+                            Text('Tap to enlarge',
+                                style: TextStyle(color: Colors.white, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                   Positioned(
                     top: 8,
